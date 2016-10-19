@@ -1,28 +1,33 @@
-CREATE TYPE transaction_statuses AS ENUM ('failed', 'success', 'blacklisted', 'rejected');
-CREATE TYPE transaction_types AS ENUM ('once', 'retry', 'recurly');
+ALTER TABLE xmp_operators ADD COLUMN mt_connection_settings jsonb NOT NULL DEFAULT '{}';
+UPDATE xmp_operators SET  mt_connection_settings = '{}' WHERE "name" = 'Mobilink';
 
-CREATE TABLE xmp_transaction (
+ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 0;
+UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
+
+ALTER TABLE xmp_subscriptions ADD COLUMN paid transaction_statuses NOT NULL DEFAULT '';
+UPDATE xmp_subscriptions SET transaction_statuses = 'past' WHERE created_at < now();
+
+CREATE TYPE transaction_statuses AS ENUM ('', 'failed', 'paid', 'blacklisted', 'recurly', 'rejected', 'past');
+
+CREATE TABLE xmp_transactions (
     id serial,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     msisdn VARCHAR(32) NOT NULL,
     status transaction_statuses NOT NULL,
-    type transaction_types NOT NULL,
     operator_code INTEGER NOT NULL,
     country_code INTEGER NOT NULL,
     id_service INTEGER NOT NULL,
     id_subscription INTEGER NOT NULL,
-    id_content INTEGER NOT NULL,
     id_campaign INTEGER NOT NULL
 );
 
-CREATE TABLE xmp_transaction_retry (
+CREATE TABLE xmp_retries (
     id serial,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
-    msisdn VARCHAR(32),
-    operator_code INTEGER,
-    country_code INTEGER,
-    id_service INTEGER,
-    id_subscription INTEGER,
-    id_content INTEGER,
-    id_campaign INTEGER
+    msisdn VARCHAR(32) NOT NULL,
+    operator_code INTEGER NOT NULL,
+    country_code INTEGER NOT NULL,
+    id_service INTEGER NOT NULL,
+    id_subscription INTEGER NOT NULL,
+    id_campaign INTEGER NOT NULL
 );

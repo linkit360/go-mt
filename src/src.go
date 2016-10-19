@@ -21,7 +21,7 @@ func RunServer() {
 	appConfig := config.LoadConfig()
 	metrics.Init()
 	newrelic.Init(appConfig.NewRelic)
-	service.InitService(appConfig.Service)
+	service.Init(appConfig.Service)
 
 	nuCPU := runtime.NumCPU()
 	runtime.GOMAXPROCS(nuCPU)

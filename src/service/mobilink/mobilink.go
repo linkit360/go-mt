@@ -1,6 +1,7 @@
 package mobilink
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -13,9 +14,8 @@ import (
 	"github.com/fiorix/go-smpp/smpp/pdu/pdutext"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/expvar"
+	"github.com/nu7hatch/gouuid"
 )
-
-var mobilink Mobilink
 
 type Mobilink struct {
 	smpp     *smpp_client.Transmitter
@@ -24,11 +24,11 @@ type Mobilink struct {
 	location time.Location
 	client   *http.Client
 }
-
 type Config struct {
+	Enabled     bool              `default:"true"`
 	Connection  ConnnectionConfig `yaml:"connection"`
 	Location    string            `default:"Asia/Karachi" yaml:"location"`
-	PostXMLBody []byte            `yaml:"post"`
+	PostXMLBody []byte            `yaml:"mt_body"`
 }
 type ConnnectionConfig struct {
 	MT   MTConfig   `yaml:"mt" json:"mt"`
@@ -42,7 +42,7 @@ type SmppConfig struct {
 	Timeout     int    `default:"20" yaml:"timeout"`
 }
 type MTConfig struct {
-	Url            string            `default:"" yaml:"url" json:"url"`
+	Url            string            `default:"http://182.16.255.46:10020/Air" yaml:"url" json:"url"`
 	Headers        map[string]string `yaml:"headers" json:"headers"`
 	TimeoutSec     int               `default:"20" yaml:"timeout" json:"timeout"`
 	OkBodyContains []string          `default:"<value><i4>0</i4></value>" yaml:"ok_body_contains" json:"ok_body_contains"`
@@ -58,7 +58,8 @@ func initMetrics() Metrics {
 	}
 }
 
-func Init(conf Config) {
+func Init(conf Config) Mobilink {
+	var mobilink Mobilink
 	mobilink.conf = conf
 	mobilink.metrics = initMetrics()
 
@@ -99,9 +100,30 @@ func Init(conf Config) {
 			}
 		}
 	}()
+	return mobilink
 }
 
-func (mb Mobilink) MT(msisdn, token string, price int) (result bool, err error) {
+func Belongs(msisdn string) bool {
+	return msisdn[:2] == "92"
+}
+
+func getToken(msisdn string) string {
+	u4, err := uuid.NewV4()
+	if err != nil {
+		log.WithField("error", err.Error()).Error("get uuid")
+		return fmt.Sprintf("%d-%s", time.Now().Unix(), msisdn)
+	}
+	return fmt.Sprintf("%d-%s-%s", time.Now().Unix(), msisdn, u4)
+}
+
+func (mb Mobilink) MT(msisdn string, price int) (string, error) {
+	if !Belongs(msisdn) {
+		log.WithFields(log.Fields{
+			"msisdn": msisdn,
+		}).Debug("is not mobilink")
+		return "", nil
+	}
+	token := getToken(msisdn)
 	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
 
 	s := string(mb.conf.PostXMLBody)
@@ -121,6 +143,7 @@ func (mb Mobilink) MT(msisdn, token string, price int) (result bool, err error) 
 	for k, v := range mb.conf.Connection.MT.Headers {
 		req.Header.Set(k, v)
 	}
+	req.Header.Set("Content-Length", strconv.Itoa(len(s)))
 	req.Close = false
 
 	resp, err := mb.client.Do(req)
@@ -149,17 +172,17 @@ func (mb Mobilink) MT(msisdn, token string, price int) (result bool, err error) 
 				"token":  token,
 				"price":  price,
 			}).Info("charged")
-			return true, nil
+			return token, nil
 		}
 	}
 	log.WithField("body", html_data).Info("charge has failed")
-	return false, nil
+	return "", errors.New("Charge has failed")
 }
 
 func (mb Mobilink) SMS(msisdn, msg string) error {
 	shortMsg, err := mb.smpp.Submit(&smpp_client.ShortMessage{
 		Src:      mb.conf.Connection.Smpp.ShortNumber,
-		Dst:      "00" + msisdn,
+		Dst:      "00" + msisdn[2:],
 		Text:     pdutext.Raw(msg),
 		Register: smpp_client.NoDeliveryReceipt,
 	})

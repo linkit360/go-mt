@@ -18,9 +18,9 @@ type NewRelicConfig struct {
 	License string `default:"4d635427ad90ca786ca2db6aa246ed651730b933"`
 }
 type AppConfig struct {
-	Server   ServerConfig          `yaml:"server"`
-	NewRelic NewRelicConfig        `yaml:"newrelic"`
-	Service  service.ServiceConfig `yaml:"service"`
+	Server   ServerConfig            `yaml:"server"`
+	NewRelic NewRelicConfig          `yaml:"newrelic"`
+	Service  service.MTServiceConfig `yaml:"service"`
 }
 
 func LoadConfig() AppConfig {

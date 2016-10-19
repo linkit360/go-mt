@@ -22,6 +22,24 @@ service:
   - subscriptions
 
   mobilink:
+    connection:
+      mt:
+        url: http://182.16.255.46:10020/Air
+        headers:
+          Content-Type: text/xml
+          Authorization: Basic SU5UTE5LVVI6TGluayMwMTAx
+          User-Agent: MEGASTORE_RPC/4.1/1.0
+          Cache-Control: no-cache
+          Pragma: no-cache
+          Host: 182.16.255.46:10020
+          Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
+
+        timeout: 20
+        ok_body_contains:
+          - <value><i4>0</i4></value>
+
+      smpp:
+    location: Asia/Karachi
     mt_body: |
       <?xml version="1.0" encoding="UTF-8"?>
     					<methodCall>
@@ -51,7 +69,7 @@ service:
     		                    <member>
     		                        <name>originTimeStamp</name>
     		                        <value>
-    		                            <dateTime.iso8601>` + time.Now().In(Pakistan).Format("20060102T15:04:05-0700") + `</dateTime.iso8601>
+    		                            <dateTime.iso8601>%time%</dateTime.iso8601>
     		                        </value>
     		                    </member>
     		                    <member>
