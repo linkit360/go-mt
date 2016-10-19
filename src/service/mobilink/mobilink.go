@@ -1,3 +1,9 @@
+// can make MT requests (request to tarifficate a msisdn via Mobilink API
+// it is assumed we could edit settings from admin interface in the future,
+// so there is a setting field in operators table (it is not used now)
+//
+// Mobilink provides also SMS send interface which could be used outside the module
+// unique token used to check statistics with Mobilink using transactions table
 package mobilink
 
 import (

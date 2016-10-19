@@ -3,7 +3,7 @@ package service
 import (
 	"database/sql"
 	"fmt"
-	"sync"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -12,8 +12,6 @@ import (
 )
 
 var svc MTService
-
-const ACTIVE_STATUS = 1
 
 func Init(sConf MTServiceConfig) {
 	svc.db = db.Init(sConf.DbConf)
@@ -32,108 +30,148 @@ type MTServiceConfig struct {
 	Mobilink mobilink.Config   `yaml:"mobilink"`
 }
 
-type Operator interface {
-	MT(msisdn string, price int) (string, error)
+type Record struct {
+	Msisdn           string
+	Status           string
+	OperatorCode     int64
+	CountryCode      int64
+	ServiceId        int64
+	SubscriptionId   int64
+	CampaignId       int64
+	RetryId          int64
+	CreatedAt        time.Time
+	LastPayAttemptAt time.Time
+	AttemptsCount    int
+	KeepDays         int
+	DelayHours       int
 }
 
 func process() {
-	processSubscriptions()
+	go func() {
+		for range time.Tick(1 * time.Second) {
+			processSubscriptions()
+		}
+	}()
 
-	// in transaction
-	// get from retry database all records
-	// mt them
-	// record
-
+	go func() {
+		for range time.Tick(1 * time.Second) {
+			processRetries()
+		}
+	}()
 }
 
-func processSubscriptions() error {
+func processRetries() {
+	retries, err := getRetryTransactions()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Error("get retries")
+		return
+	}
+	for _, r := range retries {
+		now := time.Now()
+		remove := false
+		makeAttempt := false
+		touch := false
+		if r.CreatedAt.Sub(now).Hours() > time.Duration(24*r.KeepDays)*time.Hour {
+			remove = true
+			makeAttempt = true
+		}
+		if r.LastPayAttemptAt.Sub(now).Hours() > time.Duration(r.DelayHours)*time.Hour {
+			makeAttempt = true
+		}
+
+		if makeAttempt {
+			success, err := handle(r)
+			if success == true && err == nil {
+				remove = true
+			} else {
+				touch = true
+			}
+		}
+		if remove {
+			removeRetry(r)
+		}
+		if touch {
+			touchRetry(r)
+		}
+	}
+}
+func processSubscriptions() {
 	records, err := getNotPaidSubscriptions()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),
 		}).Error("get subscriptions")
-		return fmt.Errorf("Get Subscriptions: %s", err.Error())
+		return
 	}
-	handle(records)
+	for _, record := range records {
+		success, err := handle(record)
+		if err != nil {
+			continue
+		}
+		if !success {
+			mService, ok := memServices.Map[record.ServiceId]
+			if !ok {
+				log.Error("service not found")
+				continue
+			}
+			record.DelayHours = mService.DelayHours
+			record.KeepDays = mService.KeepDays
+
+			startRetry(record)
+		}
+	}
 	return nil
 }
 
-func handle(records []Record) {
-	for _, record := range records {
+func handle(subscription Record) (bool, error) {
+	logCtx := log.WithFields(log.Fields{"subscription": subscription})
 
-		//CREATE TYPE transaction_statuses AS ENUM ('', 'failed', 'paid', 'blacklisted', 'recurly', 'rejected', 'past');
-		t := Record{
-			Msisdn:         record.Msisdn,
-			Status:         "failed",
-			OperatorCode:   record.OperatorCode,
-			CountryCode:    record.CountryCode,
-			ServiceId:      record.ServiceId,
-			SubscriptionId: record.Id,
-			CampaignId:     record.CampaignId,
-		}
+	//CREATE TYPE transaction_statuses AS ENUM ('', 'failed', 'paid', 'blacklisted', 'recurly', 'rejected', 'past');
 
-		mService, ok := memServices.Map[record.ServiceId]
-		if !ok {
-			log.WithFields(log.Fields{
-				"serviceId":    record.ServiceId,
-				"subscription": record,
-			}).Error("service not found")
-			continue
-		}
-		if mService.Price <= 0 {
-			log.WithFields(log.Fields{
-				"serviceId":    record.ServiceId,
-				"subscription": record,
-			}).Error("price is not set")
-			continue
-		}
-		if mService.PaidHours > 0 {
-			// see previous bills for this phone
-			// do not send tarifficate request if he was already billed
-			// on the same service before paidHours passed
-			if false {
-				t.Status = "rejected"
-				writeTransaction(t)
-				continue
-			}
-		}
-
-		var operatorToken string
-		var err error
-		switch {
-		case mobilink.Belongs(record.Msisdn):
-			operatorToken, err = svc.mobilink.MT(record.Msisdn, mService.Price)
-		default:
-			log.WithFields(log.Fields{
-				"msisdn": record.Msisdn,
-			}).Debug("Not applicable to any operator")
-			continue
-		}
-
-		if err != nil {
-			log.WithFields(log.Fields{
-				"subscription": record,
-				"error":        err.Error(),
-			}).Info("tariffication has failed")
-		}
-
-		if len(operatorToken) > 0 {
-			t.Status = "paid"
-			writeSuccessSubscription(record.Id)
-		}
-		writeTransaction(t)
+	mService, ok := memServices.Map[subscription.ServiceId]
+	if !ok {
+		logCtx.Error("service not found")
+		return false, fmt.Errorf("Service id %d not found", subscription.ServiceId)
 	}
-}
+	if mService.Price <= 0 {
+		logCtx.WithField("price", mService.Price).Error("price is not set")
+		return false, fmt.Errorf("Service price %d is zero or less", mService.Price)
+	}
+	if mService.PaidHours > 0 {
+		// if msisdn already was subscribed on this subscription in paid hours time
+		// give them content, and skip tariffication
+		if false {
+			logCtx.Debug("paid hours aren't passed")
+			subscription.Status = "rejected"
+			writeSubscriptionStatus(subscription)
+			return true, nil
+		}
+	}
 
-type Record struct {
-	Id             int64
-	Msisdn         string
-	Status         string
-	OperatorCode   int64
-	CountryCode    int64
-	ServiceId      int64
-	SubscriptionId int64
-	CampaignId     int64
+	var operatorToken string
+	var err error
+	switch {
+	case mobilink.Belongs(subscription.Msisdn):
+		operatorToken, err = svc.mobilink.MT(subscription.Msisdn, mService.Price)
+	default:
+		logCtx.Debug("Not applicable to any operator")
+		return false, fmt.Errorf("Msisdn %s is not applicable to any operator", subscription.Msisdn)
+	}
+	if err != nil {
+		logCtx.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Info("tariffication has failed")
+	}
+	if len(operatorToken) > 0 && err == nil {
+		subscription.Status = "paid"
+	} else {
+		subscription.Status = "failed"
+	}
+	writeSubscriptionStatus(subscription)
+	writeTransaction(subscription)
+	return subscription.Status == "paid", nil
 }
 
 func writeTransaction(t Record) error {
@@ -174,23 +212,23 @@ func writeTransaction(t Record) error {
 	return nil
 }
 
-func writeSuccessSubscription(subscriptionId int64) error {
-	query := fmt.Sprintf("update %ssubscriptions set paid = true where id = $1", svc.sConfig.DbConf.TablePrefix)
-	res, err := svc.db.Exec(query, subscriptionId)
+func writeSubscriptionStatus(subscription Record) error {
+	query := fmt.Sprintf("update %ssubscriptions set paid = $1 where id = $2", svc.sConfig.DbConf.TablePrefix)
+	res, err := svc.db.Exec(query, subscription.Status, subscription.SubscriptionId)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error ":         err.Error(),
-			"query":          query,
-			"subscriptionId": subscriptionId}).
-			Error("notify paid subscription failed")
+			"error ":       err.Error(),
+			"query":        query,
+			"subscription": subscription,
+		}).Error("notify paid subscription failed")
 		return fmt.Errorf("QueryExec: %s", err.Error())
 	}
 
 	log.WithFields(log.Fields{
-		"query":          query,
-		"rowsAffected":   res.RowsAffected(),
-		"subscriptionId": subscriptionId}).
-		Info("notify paid subscription done")
+		"query":        query,
+		"rowsAffected": res.RowsAffected(),
+		"subscription": subscription,
+	}).Info("notify paid subscription done")
 	return nil
 }
 
@@ -208,7 +246,7 @@ func getNotPaidSubscriptions() ([]Record, error) {
 		record := Record{}
 
 		if err := rows.Scan(
-			&record.Id,
+			&record.SubscriptionId,
 			&record.Msisdn,
 			&record.ServiceId,
 			&record.CampaignId,
@@ -226,53 +264,148 @@ func getNotPaidSubscriptions() ([]Record, error) {
 	return subscr, nil
 }
 
-// Tasks:
-// Keep in memory all active service to content mapping
-// Allow to get all content ids of given service id
-// Reload when changes to service_content or service are done
-var memServices = &Services{}
-
-type Services struct {
-	sync.RWMutex
-	Map map[int64]Service
-}
-type Service struct {
-	Id        int64
-	Price     float64
-	PaidHours int64
-}
-
-func (s Services) Reload() error {
-	query := fmt.Sprintf("select id, price, paid_hours from %sservices where status = $1",
-		svc.sConfig.DbConf.TablePrefix)
-	rows, err := svc.db.Query(query, ACTIVE_STATUS)
+func getRetryTransactions() ([]Record, error) {
+	var retries []Record
+	query := fmt.Sprintf("SELECT id, "+
+		"id, "+
+		"created_at, "+
+		"last_pay_attempt_at, "+
+		"attempts_count, "+
+		"keep_days, "+
+		"msisdn, "+
+		"operator_code, "+
+		"country_code, "+
+		"id_service, "+
+		"id_subscription, "+
+		"id_campaign "+
+		" from %sretries", svc.sConfig.DbConf.TablePrefix)
+	rows, err := svc.db.Query(query)
 	if err != nil {
-		return fmt.Errorf("services QueryServices: %s, query: %s", err.Error(), query)
+		return retries, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
 	defer rows.Close()
 
-	var services []Service
+	var lastPayAttemptAt, createdAt *time.Time
 	for rows.Next() {
-		var srv Service
+		record := Record{}
 		if err := rows.Scan(
-			&srv.Id,
-			&srv.Price,
-			&srv.PaidHours,
+			&record.RetryId,
+			&createdAt,
+			&lastPayAttemptAt,
+			&record.AttemptsCount,
+			&record.KeepDays,
+			&record.Msisdn,
+			&record.OperatorCode,
+			&record.CountryCode,
+			&record.ServiceId,
+			&record.SubscriptionId,
+			&record.CampaignId,
 		); err != nil {
-			return err
+			return retries, fmt.Errorf("Rows.Next: %s", err.Error())
 		}
-		services = append(services, srv)
+		record.LastPayAttemptAt = lastPayAttemptAt.UTC().Unix()
+		record.CreatedAt = createdAt.UTC().Unix()
+		retries = append(retries, record)
 	}
 	if rows.Err() != nil {
-		return fmt.Errorf("RowsError: %s", err.Error())
+		return retries, fmt.Errorf("GetRetries RowsError: %s", err.Error())
+	}
+	return retries, nil
+}
+
+func removeRetry(r Record) error {
+	query := fmt.Sprintf("DELETE FROM %sretries WHERE id = $1", svc.sConfig.DbConf.TablePrefix)
+
+	res, err := svc.db.Exec(query, r.RetryId)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error ": err.Error(),
+			"query":  query,
+			"retry":  r}).
+			Error("delete retry failed")
+		return fmt.Errorf("QueryExec: %s", err.Error())
 	}
 
-	s.Lock()
-	defer s.Unlock()
+	log.WithFields(log.Fields{
+		"query":        query,
+		"rowsAffected": res.LastInsertId(),
+		"retry":        r}).
+		Info("retry deleted")
+	return nil
+}
 
-	s.Map = make(map[int64]Service)
-	for _, service := range services {
-		s.Map[service.Id] = service
+type Record struct {
+	Msisdn           string
+	Status           string
+	OperatorCode     int64
+	CountryCode      int64
+	ServiceId        int64
+	SubscriptionId   int64
+	CampaignId       int64
+	RetryId          int64
+	CreatedAt        time.Time
+	LastPayAttemptAt time.Time
+	AttemptsCount    int
+	KeepDays         int
+	DelayHours       int
+}
+
+func touchRetry(r Record) error {
+	query := fmt.Sprintf("UPDATE %sretries SET "+
+		"last_pay_attempt_at = $1 "+
+		"attempts_count = attempts_count + 1 "+
+		"WHERE id = $2", svc.sConfig.DbConf.TablePrefix)
+
+	lastPayAttemptAt := time.Now().UTC().Unix()
+
+	res, err := svc.db.Exec(query, lastPayAttemptAt, r.RetryId)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error ": err.Error(),
+			"query":  query,
+			"retry":  r}).
+			Error("update retry failed")
+		return fmt.Errorf("QueryExec: %s", err.Error())
 	}
+
+	log.WithFields(log.Fields{
+		"query":        query,
+		"rowsAffected": res.LastInsertId(),
+		"retry":        r}).
+		Info("retry touch")
+	return nil
+}
+
+func startRetry(r Record) error {
+	if r.KeepDays == 0 {
+		return fmt.Errorf("Retry Keep Days required, service id: %s", r.ServiceId)
+	}
+	if r.DelayHours == 0 {
+		return fmt.Errorf("Retry Delay Hours required, service id: %s", r.ServiceId)
+	}
+
+	query := fmt.Sprintf("INSERT INTO  %sretries ("+
+		"keep_days, "+
+		"delay_hours, "+
+		"msisdn, "+
+		"operator_code, "+
+		"country_code, "+
+		"id_service, "+
+		"id_subscription, "+
+		"id_campaign ) VALUES ( $1, $2, $3, $4, $5, $6, $7)",
+		svc.sConfig.DbConf.TablePrefix)
+	_, err := svc.db.Exec(query,
+		&r.KeepDays,
+		&r.DelayHours,
+		&r.Msisdn,
+		&r.OperatorCode,
+		&r.CountryCode,
+		&r.ServiceId,
+		&r.SubscriptionId,
+		&r.CampaignId)
+	if err != nil {
+		return fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+	}
+
 	return nil
 }
