@@ -61,3 +61,43 @@ func (s Services) Reload() error {
 	}
 	return nil
 }
+
+// Tasks:
+// Keep in memory all active blacklisted msisdn-s
+// Reload when changes to service are done
+var memBlackListed = &BlackList{}
+
+type BlackList struct {
+	sync.RWMutex
+	Map map[string]struct{}
+}
+
+func (bl BlackList) Reload() error {
+	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.sConfig.DbConf.TablePrefix)
+	rows, err := svc.db.Query(query, ACTIVE_STATUS)
+	if err != nil {
+		return fmt.Errorf("BlackList QueryServices: %s, query: %s", err.Error(), query)
+	}
+	defer rows.Close()
+
+	var blackList []string
+	for rows.Next() {
+		var msisdn string
+		if err := rows.Scan(&msisdn); err != nil {
+			return err
+		}
+		blackList = append(blackList, msisdn)
+	}
+	if rows.Err() != nil {
+		return fmt.Errorf("RowsError: %s", err.Error())
+	}
+
+	bl.Lock()
+	defer bl.Unlock()
+
+	bl.Map = make(map[int64]struct{}, len(blackList))
+	for _, msisdn := range blackList {
+		bl.Map[msisdn] = struct{}{}
+	}
+	return nil
+}

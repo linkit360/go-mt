@@ -143,11 +143,17 @@ func handle(subscription Record) (bool, error) {
 		// if msisdn already was subscribed on this subscription in paid hours time
 		// give them content, and skip tariffication
 		if false {
-			logCtx.Debug("paid hours aren't passed")
+			logCtx.Info("paid hours aren't passed")
 			subscription.Status = "rejected"
 			writeSubscriptionStatus(subscription)
 			return true, nil
 		}
+	}
+	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
+		logCtx.Info("blacklisted")
+		subscription.Status = "blacklisted"
+		writeSubscriptionStatus(subscription)
+		return true, nil
 	}
 
 	var operatorToken string
