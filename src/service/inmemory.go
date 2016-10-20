@@ -1,11 +1,39 @@
 package service
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"sync"
+
+	"github.com/gin-gonic/gin"
+
+	db_conn "github.com/vostrok/db"
 )
 
 const ACTIVE_STATUS = 1
+
+var db *sql.DB
+var dbConf db_conn.DataBaseConfig
+
+func initInMem(dbConf db_conn.DataBaseConfig) error {
+
+	db = db_conn.Init(dbConf)
+	dbConf = dbConf
+
+	if err := memServices.Reload(); err != nil {
+		return fmt.Errorf("memServices.Reload: %s", err.Error())
+	}
+	if err := memBlackListed.Reload(); err != nil {
+		return fmt.Errorf("memBlackListed.Reload: %s", err.Error())
+	}
+	if err := memOperators.Reload(); err != nil {
+		return fmt.Errorf("memOperators.Reload: %s", err.Error())
+	}
+	return nil
+}
 
 // Tasks:
 // Keep in memory all active service to content mapping
@@ -37,7 +65,7 @@ func (s Services) Reload() error {
 		"sms_send "+
 		"from %sservices where status = $1",
 		svc.sConfig.DbConf.TablePrefix)
-	rows, err := svc.db.Query(query, ACTIVE_STATUS)
+	rows, err := db.Query(query, ACTIVE_STATUS)
 	if err != nil {
 		return fmt.Errorf("services QueryServices: %s, query: %s", err.Error(), query)
 	}
@@ -85,7 +113,7 @@ type BlackList struct {
 
 func (bl BlackList) Reload() error {
 	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.sConfig.DbConf.TablePrefix)
-	rows, err := svc.db.Query(query, ACTIVE_STATUS)
+	rows, err := db.Query(query, ACTIVE_STATUS)
 	if err != nil {
 		return fmt.Errorf("BlackList QueryServices: %s, query: %s", err.Error(), query)
 	}
@@ -111,4 +139,120 @@ func (bl BlackList) Reload() error {
 		bl.Map[msisdn] = struct{}{}
 	}
 	return nil
+}
+
+// Tasks:
+// Keep in memory all active blacklisted msisdn-s
+// Reload when changes to service are done
+var memOperators = &Operators{}
+
+type Operators struct {
+	sync.RWMutex
+	Map map[string]Operator
+}
+
+type Operator struct {
+	Name     string
+	Rps      int
+	Settings string
+}
+
+func (ops Operators) Reload() error {
+	query := fmt.Sprintf("select name, rps, settings from %operators", svc.sConfig.DbConf.TablePrefix)
+	rows, err := db.Query(query)
+	if err != nil {
+		return fmt.Errorf("Operators QueryServices: %s, query: %s", err.Error(), query)
+	}
+	defer rows.Close()
+
+	var operators []Operator
+	for rows.Next() {
+		var op Operator
+		if err := rows.Scan(
+			&op.Name,
+			&op.Rps,
+			&op.Settings,
+		); err != nil {
+			return err
+		}
+		operators = append(operators, op)
+	}
+	if rows.Err() != nil {
+		return fmt.Errorf("RowsError: %s", err.Error())
+	}
+
+	ops.Lock()
+	defer ops.Unlock()
+
+	ops.Map = make(map[int64]struct{}, len(operators))
+	for _, op := range operators {
+		ops.Map[op.Name] = op
+	}
+	return nil
+}
+
+type response struct {
+	Success bool        `json:"success,omitempty"`
+	Err     error       `json:"error,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+	Status  int         `json:"-"`
+}
+
+func AddCQRHandlers(r *gin.Engine) {
+	rg := r.Group("/cqr")
+	rg.GET("/", Reload)
+}
+
+func Reload(c *gin.Context) {
+	var err error
+	r := response{Err: err, Status: http.StatusOK}
+
+	table, exists := c.GetQuery("table")
+	if !exists || table == "" {
+		table, exists = c.GetQuery("t")
+		if !exists || table == "" {
+			err := errors.New("Table name required")
+			r.Status = http.StatusBadRequest
+			r.Err = err
+			render(r, c)
+			return
+		}
+	}
+
+	switch {
+	case strings.Contains(table, "blacklist"):
+		err = memBlackListed.Reload()
+		if err != nil {
+			r.Status = http.StatusInternalServerError
+		} else {
+			r.Success = true
+		}
+	case strings.Contains(table, "services"):
+		err = memServices.Reload()
+		if err != nil {
+			r.Status = http.StatusInternalServerError
+		} else {
+			r.Success = true
+		}
+	case strings.Contains(table, "operators"):
+		err = memOperators.Reload()
+		if err != nil {
+			r.Status = http.StatusInternalServerError
+		} else {
+			r.Success = true
+		}
+	default:
+		err = fmt.Errorf("Table name %s not recognized", table)
+		r.Status = http.StatusBadRequest
+	}
+	render(r, c)
+	return
+}
+
+func render(msg response, c *gin.Context) {
+	if msg.Err != nil {
+		c.Header("Error", msg.Err.Error())
+		c.Error(msg.Err)
+	}
+	c.JSON(msg.Status, msg)
 }

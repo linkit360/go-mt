@@ -21,14 +21,19 @@ import (
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/expvar"
 	"github.com/nu7hatch/gouuid"
+
+	rec "github.com/vostrok/mt/src/service/instance"
 )
 
 type Mobilink struct {
-	smpp     *smpp_client.Transmitter
-	metrics  Metrics
-	conf     Config
-	location time.Location
-	client   *http.Client
+	conf      Config
+	rps       int
+	mtChannel chan rec.Record
+	Response  chan rec.Record
+	metrics   Metrics
+	location  time.Location
+	client    *http.Client
+	smpp      *smpp_client.Transmitter
 }
 type Config struct {
 	Enabled     bool              `default:"true"`
@@ -64,8 +69,12 @@ func initMetrics() Metrics {
 	}
 }
 
-func Init(conf Config) Mobilink {
+func Init(rps int, conf Config) Mobilink {
 	var mobilink Mobilink
+	mobilink.rps = rps
+	mobilink.mtChannel = make(chan rec.Record)
+	mobilink.Response = make(chan rec.Record)
+
 	mobilink.conf = conf
 	mobilink.metrics = initMetrics()
 
@@ -106,6 +115,11 @@ func Init(conf Config) Mobilink {
 			}
 		}
 	}()
+
+	go func() {
+		mobilink.readChan()
+	}()
+
 	return mobilink
 }
 
@@ -122,7 +136,23 @@ func getToken(msisdn string) string {
 	return fmt.Sprintf("%d-%s-%s", time.Now().Unix(), msisdn, u4)
 }
 
-func (mb Mobilink) MT(msisdn string, price int) (string, error) {
+func (mb Mobilink) Publish(r rec.Record) {
+	mb.mtChannel <- r
+}
+
+// rate limit our Service.Method RPCs
+func (mb Mobilink) readChan() {
+	rate := time.Second / mb.rps
+	throttle := time.Tick(rate)
+	for record := range mb.mtChannel {
+		<-throttle
+		record.OperatorToken, record.OperatorErr = mb.mt(record.Msisdn, record.Price)
+		mb.Response <- record
+	}
+}
+
+func (mb Mobilink) mt(msisdn string, price int) (string, error) {
+
 	if !Belongs(msisdn) {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,

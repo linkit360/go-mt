@@ -28,8 +28,12 @@ func RunServer() {
 	log.WithField("CPUCount", nuCPU)
 
 	r := gin.New()
+
+	service.AddCQRHandlers(r)
+
 	rg := r.Group("/debug")
 	rg.GET("/vars", expvar.Handler())
+
 	r.Run(":" + appConfig.Server.Port)
 	log.WithField("port", appConfig.Server.Port).Info("mt init")
 }

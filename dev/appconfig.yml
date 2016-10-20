@@ -40,7 +40,7 @@ service:
 
       smpp:
     location: Asia/Karachi
-    mt_body: |
+    mt_body:  |
       <?xml version="1.0" encoding="UTF-8"?>
     					<methodCall>
     					    <methodName>UpdateBalanceAndDate</methodName>
