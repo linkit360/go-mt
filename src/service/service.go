@@ -119,12 +119,26 @@ func processSubscriptions() {
 			record.DelayHours = mService.DelayHours
 			record.KeepDays = mService.KeepDays
 
+			if mService.SMSSend == 1 {
+				smsSend(record, mService.SMSNotPaidText)
+			}
 			startRetry(record)
 		}
 	}
 	return nil
 }
 
+func smsSend(subscription Record, msg string) error {
+	switch {
+	case mobilink.Belongs(subscription.Msisdn):
+		return svc.mobilink.SMS(subscription.Msisdn, msg)
+	default:
+		log.WithFields(log.Fields{{"subscription": subscription}}).
+			Debug("SMS send: not applicable to any operator")
+		return fmt.Errorf("Msisdn %s is not applicable to any operator", subscription.Msisdn)
+	}
+	return nil
+}
 func handle(subscription Record) (bool, error) {
 	logCtx := log.WithFields(log.Fields{"subscription": subscription})
 

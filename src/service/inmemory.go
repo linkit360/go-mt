@@ -18,15 +18,24 @@ type Services struct {
 	Map map[int64]Service
 }
 type Service struct {
-	Id         int64
-	Price      float64
-	PaidHours  int
-	KeepDays   int
-	DelayHours int
+	Id             int64
+	Price          float64
+	PaidHours      int
+	KeepDays       int
+	DelayHours     int
+	SMSSend        int
+	SMSNotPaidText string
 }
 
 func (s Services) Reload() error {
-	query := fmt.Sprintf("select id, price, paid_hours, pull_retry_delay, retry_days from %sservices where status = $1",
+	query := fmt.Sprintf("select "+
+		"id, "+
+		"price, "+
+		"paid_hours, "+
+		"pull_retry_delay, "+
+		"retry_days "+
+		"sms_send "+
+		"from %sservices where status = $1",
 		svc.sConfig.DbConf.TablePrefix)
 	rows, err := svc.db.Query(query, ACTIVE_STATUS)
 	if err != nil {
@@ -43,6 +52,8 @@ func (s Services) Reload() error {
 			&srv.PaidHours,
 			&srv.DelayHours,
 			&srv.KeepDays,
+			&srv.SMSSend,
+			&srv.SMSNotPaidText,
 		); err != nil {
 			return err
 		}
