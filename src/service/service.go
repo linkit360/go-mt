@@ -16,6 +16,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"database/sql"
 	"github.com/vostrok/db"
 	rec "github.com/vostrok/mt/src/service/instance"
 	"github.com/vostrok/mt/src/service/mobilink"
@@ -78,12 +79,13 @@ func processRetries() {
 		now := time.Now()
 		makeAttempt := false
 		if r.CreatedAt.Sub(now).Hours() > time.Duration(24*r.KeepDays)*time.Hour {
+			log.WithField("subscription", r).Debug("must remove, but first, try tarifficate")
 			makeAttempt = true
 		}
 		if r.LastPayAttemptAt.Sub(now).Hours() > time.Duration(r.DelayHours)*time.Hour {
+			log.WithField("subscription", r).Debug("time to tarifficate")
 			makeAttempt = true
 		}
-
 		if makeAttempt {
 			handle(r)
 		}
@@ -127,20 +129,34 @@ func handle(subscription rec.Record) error {
 		logCtx.Error("service not found")
 		return fmt.Errorf("Service id %d not found", subscription.ServiceId)
 	}
+	// misconfigured price
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
 		return fmt.Errorf("Service price %d is zero or less", mService.Price)
 	}
+	subscription.Price = mService.Price
+
+	// if msisdn already was subscribed on this subscription in paid hours time
+	// give them content, and skip tariffication
 	if mService.PaidHours > 0 {
-		// if msisdn already was subscribed on this subscription in paid hours time
-		// give them content, and skip tariffication
-		if false {
-			logCtx.Info("paid hours aren't passed")
-			subscription.Status = "rejected"
-			subscription.WriteSubscriptionStatus()
-			return nil
+		previous, err := subscription.GetPrevious()
+		if err == sql.ErrNoRows {
+			// ok
+		} else if err != nil {
+			logCtx.WithField("error", err.Error()).Error("")
+			return fmt.Errorf("Get previous subscription: %s", err.Error())
+		} else {
+			if time.Now().Sub(previous.CreatedAt).Hours() >
+				time.Duration(24*subscription.DelayHours)*time.Hour {
+				logCtx.Info("paid hours aren't passed")
+				subscription.Status = "rejected"
+				subscription.WriteSubscriptionStatus()
+				subscription.WriteTransaction()
+				return nil
+			}
 		}
 	}
+
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
 		logCtx.Info("blacklisted")
 		subscription.Status = "blacklisted"
@@ -172,42 +188,69 @@ func getResponses() {
 		logCtx := log.WithField("subscription", record)
 
 		if len(record.OperatorToken) > 0 && record.OperatorErr == nil {
-			record.Status = "paid"
+			if record.AttemptsCount >= 1 {
+				record.Status = "retry_paid"
+			} else {
+				record.Status = "paid"
+			}
 		} else {
-			record.Status = "failed"
+			if record.AttemptsCount >= 1 {
+				record.Status = "retry_failed"
+			} else {
+				record.Status = "failed"
+			}
 		}
-		record.WriteSubscriptionStatus()
-		record.WriteTransaction()
+		logCtx.WithField("status", record.Status).Info("got response")
+
+		if err := record.WriteSubscriptionStatus(); err != nil {
+			logCtx.WithField("error", err.Error()).Error("Write Subscription Status failed")
+		}
+		if err := record.WriteTransaction(); err != nil {
+			logCtx.WithField("error", err.Error()).Error("Write Transaction failed")
+		}
 
 		// add retries
 		if record.AttemptsCount == 0 && record.Status == "failed" {
 			mService, ok := memServices.Map[record.ServiceId]
 			if !ok {
-				logCtx.Error("service not found")
+				logCtx.WithField("error", "Service not found").Error(record.ServiceId)
 				continue
 			}
 			record.DelayHours = mService.DelayHours
 			record.KeepDays = mService.KeepDays
 
 			if mService.SMSSend == 1 {
+				logCtx.WithField("sms", "send").Info(mService.SMSNotPaidText)
 				smsSend(record, mService.SMSNotPaidText)
 			}
-			record.StartRetry()
+
+			logCtx.Info("start retry..")
+			if err := record.StartRetry(); err != nil {
+				logCtx.WithField("error", err.Error()).Error("start retry failed")
+				continue
+			}
 		}
 
 		if record.AttemptsCount >= 1 {
-			record.TouchRetry()
+			logCtx.Info("touch retry..")
+			if err := record.TouchRetry(); err != nil {
+				logCtx.WithField("error", err.Error()).Error("touch retry failed")
+			}
 			now := time.Now()
 
 			remove := false
 			if record.CreatedAt.Sub(now).Hours() > time.Duration(24*record.KeepDays)*time.Hour {
 				remove = true
 			}
-			if record.Status == "paid" {
+			if record.Status == "retry_paid" {
 				remove = true
 			}
 			if remove {
-				record.RemoveRetry()
+				logCtx.Info("remove retry..")
+				if err := record.RemoveRetry(); err != nil {
+					logCtx.WithField("error", err.Error()).Error("remove retry failed")
+					continue
+				}
 			}
 
 		}

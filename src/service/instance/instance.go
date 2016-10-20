@@ -27,7 +27,7 @@ type Record struct {
 	OperatorName     string
 	OperatorToken    string
 	OperatorErr      error
-	Price            float64
+	Price            int
 }
 
 var db *sql.DB
@@ -119,6 +119,45 @@ func GetRetryTransactions() ([]Record, error) {
 	return retries, nil
 }
 
+func (t Record) GetPrevious() (Record, error) {
+	query := fmt.Sprintf("SELECT id, "+
+		"id, "+
+		"created_at, "+
+		"last_pay_attempt_at, "+
+		"attempts_count, "+
+		"keep_days, "+
+		"msisdn, "+
+		"operator_code, "+
+		"country_code, "+
+		"id_service, "+
+		"id_subscription, "+
+		"id_campaign "+
+		" from %ssubscription WHERE id != $1 order by created_at desc limit 1",
+		dbConf.TablePrefix)
+
+	var subscription Record
+	var lastPayAttemptAt, createdAt *time.Time
+	if err := db.QueryRow(query, t.SubscriptionId).Scan(
+		&subscription.RetryId,
+		&createdAt,
+		&lastPayAttemptAt,
+		&subscription.AttemptsCount,
+		&subscription.KeepDays,
+		&subscription.Msisdn,
+		&subscription.OperatorCode,
+		&subscription.CountryCode,
+		&subscription.ServiceId,
+		&subscription.SubscriptionId,
+		&subscription.CampaignId,
+	); err != nil {
+		return subscription, fmt.Errorf("db.QueryRow: %s, query: %s", err.Error(), query)
+	}
+	subscription.LastPayAttemptAt = lastPayAttemptAt.UTC().Unix()
+	subscription.CreatedAt = createdAt.UTC().Unix()
+
+	return subscription, nil
+
+}
 func (t Record) WriteTransaction() error {
 	query := fmt.Sprintf("INSERT INTO %stransaction ("+
 		"msisdn, "+
@@ -129,7 +168,9 @@ func (t Record) WriteTransaction() error {
 		"id_subscription, "+
 		"id_campaign, "+
 		"operator_token, "+
-		") VALUES($1, $2, $3, $4, $5, $6, $7, $8)", dbConf.TablePrefix)
+		"price, "+
+		") VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		dbConf.TablePrefix)
 
 	res, err := db.Exec(
 		query,
@@ -141,6 +182,7 @@ func (t Record) WriteTransaction() error {
 		t.SubscriptionId,
 		t.CampaignId,
 		t.OperatorToken,
+		100*t.Price,
 	)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -160,8 +202,13 @@ func (t Record) WriteTransaction() error {
 }
 
 func (subscription Record) WriteSubscriptionStatus() error {
-	query := fmt.Sprintf("update %ssubscriptions set paid = $1 where id = $2", dbConf.TablePrefix)
-	res, err := db.Exec(query, subscription.Status, subscription.SubscriptionId)
+	query := fmt.Sprintf("update %ssubscriptions "+
+		" set paid = $1, attempts_count = attempts_count + 1 where id = $3", dbConf.TablePrefix)
+
+	res, err := db.Exec(query,
+		subscription.Status,
+		subscription.SubscriptionId,
+	)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error ":       err.Error(),
