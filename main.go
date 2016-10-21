@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/vostrok/qlistener/src"
+	"github.com/vostrok/mt/src"
 )
 
 func main() {

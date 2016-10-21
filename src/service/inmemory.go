@@ -10,16 +10,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	db_conn "github.com/vostrok/db"
+	"github.com/vostrok/db"
 )
 
 const ACTIVE_STATUS = 1
 
-var db *sql.DB
-var dbConf db_conn.DataBaseConfig
+var dbConn *sql.DB
+var dbConf db.DataBaseConfig
 
-func initInMem(dbConf db_conn.DataBaseConfig) error {
-	db = db_conn.Init(dbConf)
+func initInMem(dbConf db.DataBaseConfig) error {
+	dbConn = db.Init(dbConf)
 	dbConf = dbConf
 
 	if err := memServices.Reload(); err != nil {
@@ -54,17 +54,18 @@ type Service struct {
 	SMSNotPaidText string
 }
 
-func (s Services) Reload() error {
+func (s *Services) Reload() error {
 	query := fmt.Sprintf("select "+
 		"id, "+
 		"price, "+
 		"paid_hours, "+
 		"pull_retry_delay, "+
-		"retry_days "+
-		"sms_send "+
+		"retry_days, "+
+		"sms_send, "+
+		"wording "+
 		"from %sservices where status = $1",
 		svc.sConfig.DbConf.TablePrefix)
-	rows, err := db.Query(query, ACTIVE_STATUS)
+	rows, err := dbConn.Query(query, ACTIVE_STATUS)
 	if err != nil {
 		return fmt.Errorf("services QueryServices: %s, query: %s", err.Error(), query)
 	}
@@ -110,9 +111,9 @@ type BlackList struct {
 	Map map[string]struct{}
 }
 
-func (bl BlackList) Reload() error {
+func (bl *BlackList) Reload() error {
 	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.sConfig.DbConf.TablePrefix)
-	rows, err := db.Query(query, ACTIVE_STATUS)
+	rows, err := dbConn.Query(query)
 	if err != nil {
 		return fmt.Errorf("BlackList QueryServices: %s, query: %s", err.Error(), query)
 	}
@@ -133,7 +134,7 @@ func (bl BlackList) Reload() error {
 	bl.Lock()
 	defer bl.Unlock()
 
-	bl.Map = make(map[int64]struct{}, len(blackList))
+	bl.Map = make(map[string]struct{}, len(blackList))
 	for _, msisdn := range blackList {
 		bl.Map[msisdn] = struct{}{}
 	}
@@ -156,9 +157,9 @@ type Operator struct {
 	Settings string
 }
 
-func (ops Operators) Reload() error {
-	query := fmt.Sprintf("select name, rps, settings from %operators", svc.sConfig.DbConf.TablePrefix)
-	rows, err := db.Query(query)
+func (ops *Operators) Reload() error {
+	query := fmt.Sprintf("select name, rps, settings from %soperators", svc.sConfig.DbConf.TablePrefix)
+	rows, err := dbConn.Query(query)
 	if err != nil {
 		return fmt.Errorf("Operators QueryServices: %s, query: %s", err.Error(), query)
 	}
@@ -183,7 +184,7 @@ func (ops Operators) Reload() error {
 	ops.Lock()
 	defer ops.Unlock()
 
-	ops.Map = make(map[int64]struct{}, len(operators))
+	ops.Map = make(map[string]Operator, len(operators))
 	for _, op := range operators {
 		ops.Map[op.Name] = op
 	}

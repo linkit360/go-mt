@@ -1,34 +1,28 @@
+-- operators
 ALTER TABLE xmp_operators ADD COLUMN settings jsonb NOT NULL DEFAULT '{}';
 UPDATE xmp_operators SET  settings = '{}' WHERE "name" = 'Mobilink';
-
-ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 0;
-UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
-
-ALTER TABLE xmp_subscriptions ADD COLUMN paid transaction_statuses NOT NULL DEFAULT '';
-UPDATE xmp_subscriptions SET paid = 'past' WHERE created_at < now();
-
-ALTER TABLE xmp_subscriptions ADD COLUMN attempts_count INT NOT NULL DEFAULT 0;
-
 ALTER TABLE xmp_operators ADD COLUMN rps INT NOT NULL DEFAULT 0;
 UPDATE xmp_operators SET rps = 10 WHERE "name" = 'Mobilink';
 
+-- service new functionality
+ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 0;
+UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
 
-CREATE TYPE transaction_statuses AS ENUM (
-    '', 'failed', 'paid', 'retry_failed', 'retry_paid', 'blacklisted', 'recurly', 'rejected', 'past');
+-- subscriptions table
+CREATE TYPE subscription_status AS ENUM ('', 'failed', 'paid', 'blacklisted', 'rejected', 'past');
+ALTER TABLE xmp_subscriptions ADD COLUMN result subscription_status NOT NULL DEFAULT '';
+UPDATE xmp_subscriptions SET result = 'past' WHERE created_at < now();
 
-CREATE TABLE xmp_transactions (
-    id serial,
-    created_at TIMESTAMP NOT NULL DEFAULT now(),
-    msisdn VARCHAR(32) NOT NULL,
-    status transaction_statuses NOT NULL,
-    operator_code INTEGER NOT NULL,
-    country_code INTEGER NOT NULL,
-    id_service INTEGER NOT NULL,
-    id_subscription INTEGER NOT NULL,
-    id_campaign INTEGER NOT NULL,
-    operator_token VARCHAR(511) NOT NULL,
-    price int NOT NULL
-);
+ALTER TABLE xmp_subscriptions ADD COLUMN attempts_count INT NOT NULL DEFAULT 0;
+ALTER TABLE xmp_subscriptions ADD COLUMN price int NOT NULL;
+
+-- transactions table
+CREATE TYPE transaction_result AS ENUM ('failed', 'paid', 'retry_failed', 'retry_paid', 'rejected', 'past');
+ALTER TABLE xmp_transactions ADD COLUMN result transaction_result NOT NULL;
+UPDATE xmp_transactions SET result = 'past' WHERE created_at < now();
+ALTER TABLE xmp_transactions ADD COLUMN operator_token VARCHAR(511) NOT NULL;
+ALTER TABLE xmp_transactions ADD COLUMN price int NOT NULL;
+ALTER TABLE xmp_transactions ADD COLUMN id_campaign INT NOT NULL DEFAULT 0;
 
 CREATE TABLE xmp_retries (
     id serial,

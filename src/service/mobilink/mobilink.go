@@ -31,15 +31,15 @@ type Mobilink struct {
 	mtChannel chan rec.Record
 	Response  chan rec.Record
 	metrics   Metrics
-	location  time.Location
+	location  *time.Location
 	client    *http.Client
 	smpp      *smpp_client.Transmitter
 }
 type Config struct {
-	Enabled     bool              `default:"true"`
+	Enabled     bool              `default:"true" yaml:"enabled"`
 	Connection  ConnnectionConfig `yaml:"connection"`
 	Location    string            `default:"Asia/Karachi" yaml:"location"`
-	PostXMLBody []byte            `yaml:"mt_body"`
+	PostXMLBody string            `yaml:"mt_body"`
 }
 type ConnnectionConfig struct {
 	MT   MTConfig   `yaml:"mt" json:"mt"`
@@ -82,7 +82,7 @@ func Init(rps int, conf Config) Mobilink {
 	mobilink.location, err = time.LoadLocation(conf.Location)
 
 	mobilink.client = &http.Client{
-		Timeout: time.Duration(conf.Connection.MT.TimeoutSec * time.Second),
+		Timeout: time.Duration(conf.Connection.MT.TimeoutSec) * time.Second,
 	}
 
 	if err != nil {
@@ -123,6 +123,7 @@ func Init(rps int, conf Config) Mobilink {
 	return mobilink
 }
 
+// prefix from table
 func Belongs(msisdn string) bool {
 	return msisdn[:2] == "92"
 }
@@ -142,7 +143,7 @@ func (mb Mobilink) Publish(r rec.Record) {
 
 // rate limit our Service.Method RPCs
 func (mb Mobilink) readChan() {
-	rate := time.Second / mb.rps
+	rate := time.Second / (time.Duration(mb.rps) * time.Second)
 	throttle := time.Tick(rate)
 	for record := range mb.mtChannel {
 		<-throttle
@@ -162,7 +163,7 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	token := getToken(msisdn)
 	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
 
-	s := string(mb.conf.PostXMLBody)
+	s := mb.conf.PostXMLBody
 	s = strings.Replace(s, "%price%", strconv.Itoa(price), 1)
 	s = strings.Replace(s, "%msisdn%", msisdn, 1)
 	s = strings.Replace(s, "%token%", token, 1)
@@ -171,10 +172,10 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(s))
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error": err,
+			"error": err.Error(),
 		}).Error("create POST req to mobilink")
 		err = fmt.Errorf("http.NewRequest: %s", err.Error())
-		return
+		return "", err
 	}
 	for k, v := range mb.conf.Connection.MT.Headers {
 		req.Header.Set(k, v)
@@ -188,7 +189,7 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 			"error": err,
 		}).Error("do request to mobilink")
 		err = fmt.Errorf("client.Do: %s", err.Error())
-		return
+		return "", err
 	}
 	var html_data []byte
 	html_data, err = ioutil.ReadAll(resp.Body)
@@ -197,9 +198,9 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 			"error": err,
 		}).Error("get raw body of mobilink response")
 		err = fmt.Errorf("ioutil.ReadAll: %s", err.Error())
-		return
+		return "", err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
 	for _, v := range mb.conf.Connection.MT.OkBodyContains {
 		if strings.Contains(string(html_data), v) {
@@ -212,7 +213,7 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 		}
 	}
 	log.WithField("body", html_data).Info("charge has failed")
-	return "", errors.New("Charge has failed")
+	return token, errors.New("Charge has failed")
 }
 
 func (mb Mobilink) SMS(msisdn, msg string) error {
@@ -229,7 +230,7 @@ func (mb Mobilink) SMS(msisdn, msg string) error {
 			"msg":    msg,
 			"error":  err.Error(),
 		}).Error("counldn't sed sms: service unavialable")
-		return err
+		return fmt.Errorf("smpp.Submit: %s", err.Error())
 	}
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -237,7 +238,7 @@ func (mb Mobilink) SMS(msisdn, msg string) error {
 			"msg":    msg,
 			"error":  err.Error(),
 		}).Error("counldn't sed sms: bad request")
-		return
+		return fmt.Errorf("smpp.Submit: %s", err.Error())
 	}
 
 	log.WithFields(log.Fields{

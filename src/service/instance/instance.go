@@ -11,39 +11,49 @@ import (
 )
 
 type Record struct {
-	Msisdn           string
-	Status           string
-	OperatorCode     int64
-	CountryCode      int64
-	ServiceId        int64
-	SubscriptionId   int64
-	CampaignId       int64
-	RetryId          int64
-	CreatedAt        time.Time
-	LastPayAttemptAt time.Time
-	AttemptsCount    int
-	KeepDays         int
-	DelayHours       int
-	OperatorName     string
-	OperatorToken    string
-	OperatorErr      error
-	Price            int
+	Msisdn             string
+	Result             string
+	SubscriptionStatus string
+	OperatorCode       int64
+	CountryCode        int64
+	ServiceId          int64
+	SubscriptionId     int64
+	CampaignId         int64
+	RetryId            int64
+	CreatedAt          time.Time
+	LastPayAttemptAt   time.Time
+	AttemptsCount      int
+	KeepDays           int
+	DelayHours         int
+	OperatorName       string
+	OperatorToken      string
+	OperatorErr        error
+	Price              int
 }
 
 var db *sql.DB
 var dbConf db_conn.DataBaseConfig
 
-func Init(dbConf db_conn.DataBaseConfig) {
+func Init(dbC db_conn.DataBaseConfig) {
 	log.SetLevel(log.DebugLevel)
 
-	db = db_conn.Init(dbConf)
-	dbConf = dbConf
+	db = db_conn.Init(dbC)
+	dbConf = dbC
+	fmt.Println(dbC)
 }
 
 func GetNotPaidSubscriptions() ([]Record, error) {
 	var subscr []Record
-	query := fmt.Sprintf("SELECT id, msisdn, id_service, id_campaign, operator_code, country_code"+
-		" from %ssubscriptions where paid = '' OR paid = 'failed' ", dbConf.TablePrefix)
+	query := fmt.Sprintf("SELECT "+
+		"id, "+
+		"msisdn, "+
+		"id_service, "+
+		"id_campaign, "+
+		"operator_code, "+
+		"country_code "+
+		" FROM %ssubscriptions WHERE"+
+		" result = '' OR result = 'failed' ",
+		dbConf.TablePrefix)
 	rows, err := db.Query(query)
 	if err != nil {
 		return subscr, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
@@ -86,20 +96,20 @@ func GetRetryTransactions() ([]Record, error) {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		" from %sretries", dbConf.TablePrefix)
+		" from %sretries",
+		dbConf.TablePrefix)
 	rows, err := db.Query(query)
 	if err != nil {
 		return retries, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
 	defer rows.Close()
 
-	var lastPayAttemptAt, createdAt *time.Time
 	for rows.Next() {
 		record := Record{}
 		if err := rows.Scan(
 			&record.RetryId,
-			&createdAt,
-			&lastPayAttemptAt,
+			&record.CreatedAt,
+			&record.LastPayAttemptAt,
 			&record.AttemptsCount,
 			&record.KeepDays,
 			&record.Msisdn,
@@ -111,8 +121,7 @@ func GetRetryTransactions() ([]Record, error) {
 		); err != nil {
 			return retries, fmt.Errorf("Rows.Next: %s", err.Error())
 		}
-		record.LastPayAttemptAt = lastPayAttemptAt.UTC().Unix()
-		record.CreatedAt = createdAt.UTC().Unix()
+
 		retries = append(retries, record)
 	}
 	if rows.Err() != nil {
@@ -121,7 +130,7 @@ func GetRetryTransactions() ([]Record, error) {
 	return retries, nil
 }
 
-func (t Record) GetPrevious() (Record, error) {
+func (t Record) GetPreviousSubscription() (Record, error) {
 	query := fmt.Sprintf("SELECT id, "+
 		"id, "+
 		"created_at, "+
@@ -134,15 +143,16 @@ func (t Record) GetPrevious() (Record, error) {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		" from %ssubscription WHERE id != $1 order by created_at desc limit 1",
+		"FROM %ssubscription "+
+		"WHERE id != $1 ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
 
 	var subscription Record
-	var lastPayAttemptAt, createdAt *time.Time
+
 	if err := db.QueryRow(query, t.SubscriptionId).Scan(
 		&subscription.RetryId,
-		&createdAt,
-		&lastPayAttemptAt,
+		&subscription.CreatedAt,
+		&subscription.LastPayAttemptAt,
 		&subscription.AttemptsCount,
 		&subscription.KeepDays,
 		&subscription.Msisdn,
@@ -152,18 +162,17 @@ func (t Record) GetPrevious() (Record, error) {
 		&subscription.SubscriptionId,
 		&subscription.CampaignId,
 	); err != nil {
+		if err == sql.ErrNoRows {
+			return subscription, err
+		}
 		return subscription, fmt.Errorf("db.QueryRow: %s, query: %s", err.Error(), query)
 	}
-	subscription.LastPayAttemptAt = lastPayAttemptAt.UTC().Unix()
-	subscription.CreatedAt = createdAt.UTC().Unix()
-
 	return subscription, nil
-
 }
 func (t Record) WriteTransaction() error {
 	query := fmt.Sprintf("INSERT INTO %stransaction ("+
 		"msisdn, "+
-		"status, "+
+		"result, "+
 		"operator_code, "+
 		"country_code, "+
 		"id_service, "+
@@ -174,17 +183,17 @@ func (t Record) WriteTransaction() error {
 		") VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		dbConf.TablePrefix)
 
-	res, err := db.Exec(
+	_, err := db.Exec(
 		query,
 		t.Msisdn,
-		t.Status,
+		t.Result,
 		t.OperatorCode,
 		t.CountryCode,
 		t.ServiceId,
 		t.SubscriptionId,
 		t.CampaignId,
 		t.OperatorToken,
-		100*t.Price,
+		100*int(t.Price),
 	)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -196,19 +205,18 @@ func (t Record) WriteTransaction() error {
 	}
 
 	log.WithFields(log.Fields{
-		"query":        query,
-		"rowsAffected": res.LastInsertId(),
-		"transaction":  t}).
-		Info("record transaction done")
+		"query":       query,
+		"transaction": t,
+	}).Info("record transaction done")
 	return nil
 }
 
 func (subscription Record) WriteSubscriptionStatus() error {
-	query := fmt.Sprintf("update %ssubscriptions "+
-		" set paid = $1, attempts_count = attempts_count + 1 where id = $3", dbConf.TablePrefix)
+	query := fmt.Sprintf("UPDATE %ssubscriptions "+
+		" set result = $1, attempts_count = attempts_count + 1 where id = $2", dbConf.TablePrefix)
 
-	res, err := db.Exec(query,
-		subscription.Status,
+	_, err := db.Exec(query,
+		subscription.SubscriptionStatus,
 		subscription.SubscriptionId,
 	)
 	if err != nil {
@@ -222,7 +230,6 @@ func (subscription Record) WriteSubscriptionStatus() error {
 
 	log.WithFields(log.Fields{
 		"query":        query,
-		"rowsAffected": res.RowsAffected(),
 		"subscription": subscription,
 	}).Info("notify paid subscription done")
 	return nil
@@ -231,7 +238,7 @@ func (subscription Record) WriteSubscriptionStatus() error {
 func (r Record) RemoveRetry() error {
 	query := fmt.Sprintf("DELETE FROM %sretries WHERE id = $1", dbConf.TablePrefix)
 
-	res, err := db.Exec(query, r.RetryId)
+	_, err := db.Exec(query, r.RetryId)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
@@ -242,9 +249,8 @@ func (r Record) RemoveRetry() error {
 	}
 
 	log.WithFields(log.Fields{
-		"query":        query,
-		"rowsAffected": res.LastInsertId(),
-		"retry":        r}).
+		"query": query,
+		"retry": r}).
 		Info("retry deleted")
 	return nil
 }
@@ -257,7 +263,7 @@ func (r Record) TouchRetry() error {
 
 	lastPayAttemptAt := time.Now().UTC().Unix()
 
-	res, err := db.Exec(query, lastPayAttemptAt, r.RetryId)
+	_, err := db.Exec(query, lastPayAttemptAt, r.RetryId)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
@@ -268,10 +274,9 @@ func (r Record) TouchRetry() error {
 	}
 
 	log.WithFields(log.Fields{
-		"query":        query,
-		"rowsAffected": res.LastInsertId(),
-		"retry":        r}).
-		Info("retry touch")
+		"query": query,
+		"retry": r,
+	}).Info("retry touch")
 	return nil
 }
 
@@ -291,7 +296,8 @@ func (r Record) StartRetry() error {
 		"country_code, "+
 		"id_service, "+
 		"id_subscription, "+
-		"id_campaign ) VALUES ( $1, $2, $3, $4, $5, $6, $7)",
+		"id_campaign "+
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 		dbConf.TablePrefix)
 	_, err := db.Exec(query,
 		&r.KeepDays,
