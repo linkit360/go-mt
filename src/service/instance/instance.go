@@ -34,6 +34,8 @@ var db *sql.DB
 var dbConf db_conn.DataBaseConfig
 
 func Init(dbConf db_conn.DataBaseConfig) {
+	log.SetLevel(log.DebugLevel)
+
 	db = db_conn.Init(dbConf)
 	dbConf = dbConf
 }

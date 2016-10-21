@@ -1,5 +1,5 @@
 server:
-  port: 50304
+  port: 50305
 
 newrelic:
   appname: dev.mt.linkit360.com

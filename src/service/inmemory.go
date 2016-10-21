@@ -19,7 +19,6 @@ var db *sql.DB
 var dbConf db_conn.DataBaseConfig
 
 func initInMem(dbConf db_conn.DataBaseConfig) error {
-
 	db = db_conn.Init(dbConf)
 	dbConf = dbConf
 

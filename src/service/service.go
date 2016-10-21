@@ -25,6 +25,7 @@ import (
 var svc MTService
 
 func Init(sConf MTServiceConfig) {
+	log.SetLevel(log.DebugLevel)
 
 	svc.sConfig = sConf
 	svc.operatorResponses = make(chan rec.Record)
