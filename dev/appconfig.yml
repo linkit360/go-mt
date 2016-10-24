@@ -2,7 +2,7 @@ server:
   port: 50305
 
 newrelic:
-  appname: dev.mt.linkit360.com
+  appname: mumbai.mt.linkit360.com
   license: 4d635427ad90ca786ca2db6aa246ed651730b933
 
 service:
