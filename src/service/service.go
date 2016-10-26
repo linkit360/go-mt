@@ -8,6 +8,10 @@
 // if everything is ok, then remove item
 // if not, "touch" item == renew attempts count and last attempt date
 
+// todo batches add - retry
+// todo: order by created_at - first in first out
+// todo: cursor
+
 package service
 
 import (
