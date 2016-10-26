@@ -70,17 +70,19 @@ type MTService struct {
 	operatorResponses chan rec.Record
 }
 type MTServiceConfig struct {
-	SubscriptionsSec int               `yaml:"subscriptions_period"`
-	RetrySec         int               `yaml:"retry_period"`
-	DbConf           db.DataBaseConfig `yaml:"db"`
-	Mobilink         mobilink.Config   `yaml:"mobilink"`
+	SubscriptionsSec   int               `yaml:"subscriptions_period"`
+	SubscriptionsCount int               `yaml:"subscriptions_count"`
+	RetrySec           int               `yaml:"retry_period"`
+	RetryCount         int               `yaml:"retry_count"`
+	DbConf             db.DataBaseConfig `yaml:"db"`
+	Mobilink           mobilink.Config   `yaml:"mobilink"`
 }
 
 func processRetries() {
 	if buzyCheck() {
 		return
 	}
-	retries, err := rec.GetRetryTransactions()
+	retries, err := rec.GetRetryTransactions(svc.sConfig.RetryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),
@@ -136,7 +138,7 @@ func processSubscriptions() {
 		return
 	}
 
-	records, err := rec.GetNotPaidSubscriptions()
+	records, err := rec.GetNotPaidSubscriptions(svc.sConfig.SubscriptionsCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),

@@ -8,6 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	db_conn "github.com/vostrok/db"
+	"strconv"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ func Init(dbC db_conn.DataBaseConfig) {
 	fmt.Println(dbC)
 }
 
-func GetNotPaidSubscriptions() ([]Record, error) {
+func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 	var subscr []Record
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
@@ -56,8 +57,10 @@ func GetNotPaidSubscriptions() ([]Record, error) {
 		"operator_code, "+
 		"country_code "+
 		" FROM %ssubscriptions WHERE"+
-		" result = '' OR result = 'failed' ",
-		dbConf.TablePrefix)
+		" result = '' OR result = 'failed' ORDER BY id DESC LIMIT %s",
+		dbConf.TablePrefix,
+		strconv.Itoa(batchLimit),
+	)
 	rows, err := db.Query(query)
 	if err != nil {
 		return subscr, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
@@ -86,9 +89,9 @@ func GetNotPaidSubscriptions() ([]Record, error) {
 	return subscr, nil
 }
 
-func GetRetryTransactions() ([]Record, error) {
+func GetRetryTransactions(batchLimit int) ([]Record, error) {
 	var retries []Record
-	query := fmt.Sprintf("SELECT id, "+
+	query := fmt.Sprintf("SELECT "+
 		"id, "+
 		"created_at, "+
 		"last_pay_attempt_at, "+
@@ -100,8 +103,12 @@ func GetRetryTransactions() ([]Record, error) {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		" from %sretries",
-		dbConf.TablePrefix)
+		"FROM %sretries "+
+		"WHERE last_pay_attempt_at > (CURRENT_TIMESTAMP - delay_hours * INTERVAL '1 hour' )"+
+		"ORDER BY last_pay_attempt_at DESC LIMIT %s", // get the last touched
+		dbConf.TablePrefix,
+		strconv.Itoa(batchLimit),
+	)
 	rows, err := db.Query(query)
 	if err != nil {
 		return retries, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
@@ -273,7 +280,7 @@ func (r Record) TouchRetry() error {
 		"attempts_count = attempts_count + 1 "+
 		"WHERE id = $2", dbConf.TablePrefix)
 
-	lastPayAttemptAt := time.Now().UTC().Unix()
+	lastPayAttemptAt := time.Now()
 
 	_, err := db.Exec(query, lastPayAttemptAt, r.RetryId)
 	if err != nil {

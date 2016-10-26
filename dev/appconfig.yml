@@ -7,7 +7,10 @@ newrelic:
 
 service:
   subscriptions_period: 600
+  subscriptions_count: 500
   retry_period: 600
+  retry_count: 500
+
   db:
     conn_ttl: -1
     max_conns: 15
