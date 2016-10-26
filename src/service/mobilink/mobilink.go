@@ -41,6 +41,7 @@ type Config struct {
 	Location    string            `default:"Asia/Karachi" yaml:"location"`
 	PostXMLBody string            `yaml:"mt_body"`
 }
+
 type ConnnectionConfig struct {
 	MT   MTConfig   `yaml:"mt" json:"mt"`
 	Smpp SmppConfig `yaml:"smpp" json:"smpp"`
@@ -139,6 +140,10 @@ func getToken(msisdn string) string {
 
 func (mb Mobilink) Publish(r rec.Record) {
 	mb.mtChannel <- r
+}
+
+func (mb Mobilink) GetMTChanGap() int {
+	return len(mb.mtChannel)
 }
 
 // rate limit our Service.Method RPCs

@@ -16,11 +16,11 @@ import (
 const ACTIVE_STATUS = 1
 
 var dbConn *sql.DB
-var dbConf db.DataBaseConfig
+var conf db.DataBaseConfig
 
 func initInMem(dbConf db.DataBaseConfig) error {
 	dbConn = db.Init(dbConf)
-	dbConf = dbConf
+	conf = dbConf
 
 	if err := memServices.Reload(); err != nil {
 		return fmt.Errorf("memServices.Reload: %s", err.Error())

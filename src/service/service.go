@@ -48,13 +48,13 @@ func Init(sConf MTServiceConfig) {
 	log.Info("mt service init ok")
 
 	go func() {
-		for range time.Tick(1 * time.Second) {
+		for range time.Tick(time.Duration(sConf.SubscriptionsSec) * time.Second) {
 			processSubscriptions()
 		}
 	}()
 
 	go func() {
-		for range time.Tick(1 * time.Second) {
+		for range time.Tick(time.Duration(sConf.RetrySec) * time.Second) {
 			processRetries()
 		}
 	}()
@@ -70,11 +70,16 @@ type MTService struct {
 	operatorResponses chan rec.Record
 }
 type MTServiceConfig struct {
-	DbConf   db.DataBaseConfig `yaml:"db"`
-	Mobilink mobilink.Config   `yaml:"mobilink"`
+	SubscriptionsSec int               `yaml:"subscriptions_period"`
+	RetrySec         int               `yaml:"retry_period"`
+	DbConf           db.DataBaseConfig `yaml:"db"`
+	Mobilink         mobilink.Config   `yaml:"mobilink"`
 }
 
 func processRetries() {
+	if buzyCheck() {
+		return
+	}
 	retries, err := rec.GetRetryTransactions()
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -109,12 +114,28 @@ func processRetries() {
 			makeAttempt = true
 		}
 		if makeAttempt {
-			handle(r)
+			go func(rr rec.Record) {
+				handle(rr)
+			}(r)
 		}
 	}
 }
 
+func buzyCheck() bool {
+	if svc.mobilink.GetMTChanGap() > 0 {
+		log.WithFields(log.Fields{
+			"awaiting": "mobilink",
+		}).Error("mobilink has not finished yet")
+		return true
+	}
+	return false
+}
+
 func processSubscriptions() {
+	if buzyCheck() {
+		return
+	}
+
 	records, err := rec.GetNotPaidSubscriptions()
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -125,10 +146,11 @@ func processSubscriptions() {
 	log.WithFields(log.Fields{
 		"count": len(records),
 	}).Info("subscriptions")
+
 	for _, record := range records {
-		if err := handle(record); err != nil {
-			continue
-		}
+		go func(r rec.Record) {
+			handle(record)
+		}(record)
 	}
 	return
 }
@@ -210,78 +232,84 @@ func getResponses() {
 	}
 
 	for record := range svc.operatorResponses {
-		logCtx := log.WithField("subscription", record)
+		go func(r rec.Record) {
+			handleResponse(record)
+		}(record)
+	}
 
-		if len(record.OperatorToken) > 0 && record.OperatorErr == nil {
-			record.SubscriptionStatus = "paid"
-			if record.AttemptsCount >= 1 {
-				record.Result = "retry_paid"
-			} else {
-				record.Result = "paid"
+}
+
+func handleResponse(record rec.Record) {
+	logCtx := log.WithField("subscription", record)
+
+	if len(record.OperatorToken) > 0 && record.OperatorErr == nil {
+		record.SubscriptionStatus = "paid"
+		if record.AttemptsCount >= 1 {
+			record.Result = "retry_paid"
+		} else {
+			record.Result = "paid"
+		}
+	} else {
+		record.SubscriptionStatus = "failed"
+		if record.AttemptsCount >= 1 {
+			record.Result = "retry_failed"
+		} else {
+			record.Result = "failed"
+		}
+	}
+	logCtx.WithField("status", record.Result).Info("got response")
+
+	if err := record.WriteSubscriptionStatus(); err != nil {
+		logCtx.WithField("error", err.Error()).Error("Write Subscription Status failed")
+	}
+	if err := record.WriteTransaction(); err != nil {
+		logCtx.WithField("error", err.Error()).Error("Write Transaction failed")
+	}
+
+	// add retries
+	if record.AttemptsCount == 0 && record.SubscriptionStatus == "failed" {
+		mService, ok := memServices.Map[record.ServiceId]
+		if !ok {
+			logCtx.WithField("error", "Service not found").Error(record.ServiceId)
+			return
+		}
+		record.DelayHours = mService.DelayHours
+		record.KeepDays = mService.KeepDays
+
+		if mService.SMSSend == 1 {
+			logCtx.WithField("sms", "send").Info(mService.SMSNotPaidText)
+			smsSend(record, mService.SMSNotPaidText)
+		}
+
+		logCtx.Info("start retry..")
+		if err := record.StartRetry(); err != nil {
+			logCtx.WithField("error", err.Error()).Error("start retry failed")
+			return
+		}
+	}
+	// retry
+	if record.AttemptsCount >= 1 {
+		now := time.Now()
+
+		remove := false
+		if record.CreatedAt.Sub(now).Hours() >
+			(time.Duration(24*record.KeepDays) * time.Hour).Hours() {
+			remove = true
+		}
+		if record.Result == "retry_paid" {
+			remove = true
+		}
+		if remove {
+			logCtx.Info("remove retry..")
+			if err := record.RemoveRetry(); err != nil {
+				logCtx.WithField("error", err.Error()).Error("remove retry failed")
+				return
 			}
 		} else {
-			record.SubscriptionStatus = "failed"
-			if record.AttemptsCount >= 1 {
-				record.Result = "retry_failed"
-			} else {
-				record.Result = "failed"
+			logCtx.Info("touch retry..")
+			if err := record.TouchRetry(); err != nil {
+				logCtx.WithField("error", err.Error()).Error("touch retry failed")
 			}
-		}
-		logCtx.WithField("status", record.Result).Info("got response")
-
-		if err := record.WriteSubscriptionStatus(); err != nil {
-			logCtx.WithField("error", err.Error()).Error("Write Subscription Status failed")
-		}
-		if err := record.WriteTransaction(); err != nil {
-			logCtx.WithField("error", err.Error()).Error("Write Transaction failed")
-		}
-
-		// add retries
-		if record.AttemptsCount == 0 && record.SubscriptionStatus == "failed" {
-			mService, ok := memServices.Map[record.ServiceId]
-			if !ok {
-				logCtx.WithField("error", "Service not found").Error(record.ServiceId)
-				continue
-			}
-			record.DelayHours = mService.DelayHours
-			record.KeepDays = mService.KeepDays
-
-			if mService.SMSSend == 1 {
-				logCtx.WithField("sms", "send").Info(mService.SMSNotPaidText)
-				smsSend(record, mService.SMSNotPaidText)
-			}
-
-			logCtx.Info("start retry..")
-			if err := record.StartRetry(); err != nil {
-				logCtx.WithField("error", err.Error()).Error("start retry failed")
-				continue
-			}
-		}
-		// retry
-		if record.AttemptsCount >= 1 {
-			now := time.Now()
-
-			remove := false
-			if record.CreatedAt.Sub(now).Hours() >
-				(time.Duration(24*record.KeepDays) * time.Hour).Hours() {
-				remove = true
-			}
-			if record.Result == "retry_paid" {
-				remove = true
-			}
-			if remove {
-				logCtx.Info("remove retry..")
-				if err := record.RemoveRetry(); err != nil {
-					logCtx.WithField("error", err.Error()).Error("remove retry failed")
-					continue
-				}
-			} else {
-				logCtx.Info("touch retry..")
-				if err := record.TouchRetry(); err != nil {
-					logCtx.WithField("error", err.Error()).Error("touch retry failed")
-				}
-			}
-
 		}
 
 	}

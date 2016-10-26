@@ -8,7 +8,11 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	db_conn "github.com/vostrok/db"
+	"sync"
 )
+
+var mutSubscriptions sync.RWMutex
+var mutTransactions sync.RWMutex
 
 type Record struct {
 	Msisdn             string
@@ -131,6 +135,7 @@ func GetRetryTransactions() ([]Record, error) {
 }
 
 func (t Record) GetPreviousSubscription() (Record, error) {
+
 	query := fmt.Sprintf("SELECT id, "+
 		"id, "+
 		"created_at, "+
@@ -143,12 +148,14 @@ func (t Record) GetPreviousSubscription() (Record, error) {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		"FROM %ssubscription "+
+		"FROM %ssubscriptions "+
 		"WHERE id != $1 ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
 
 	var subscription Record
 
+	mutSubscriptions.Lock()
+	defer mutSubscriptions.Unlock()
 	if err := db.QueryRow(query, t.SubscriptionId).Scan(
 		&subscription.RetryId,
 		&subscription.CreatedAt,
@@ -170,7 +177,7 @@ func (t Record) GetPreviousSubscription() (Record, error) {
 	return subscription, nil
 }
 func (t Record) WriteTransaction() error {
-	query := fmt.Sprintf("INSERT INTO %stransaction ("+
+	query := fmt.Sprintf("INSERT INTO %stransactions ("+
 		"msisdn, "+
 		"result, "+
 		"operator_code, "+
@@ -183,6 +190,8 @@ func (t Record) WriteTransaction() error {
 		") VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		dbConf.TablePrefix)
 
+	mutTransactions.Lock()
+	defer mutTransactions.Unlock()
 	_, err := db.Exec(
 		query,
 		t.Msisdn,
@@ -214,6 +223,9 @@ func (t Record) WriteTransaction() error {
 func (subscription Record) WriteSubscriptionStatus() error {
 	query := fmt.Sprintf("UPDATE %ssubscriptions "+
 		" set result = $1, attempts_count = attempts_count + 1 where id = $2", dbConf.TablePrefix)
+
+	mutSubscriptions.Lock()
+	defer mutSubscriptions.Unlock()
 
 	_, err := db.Exec(query,
 		subscription.SubscriptionStatus,
