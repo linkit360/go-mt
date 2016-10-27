@@ -32,7 +32,7 @@ service:
     connection:
       mt:
         # url: http://182.16.255.46:10020/Air
-        url: http://localhost:50300/mobilink_handler
+        url: http://localhost:50305/mobilink_handler
         headers:
           Content-Type: text/xml
           Authorization: Basic SU5UTE5LVVI6TGluayMwMTAx

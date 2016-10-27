@@ -33,7 +33,7 @@ func RunServer() {
 	service.AddCQRHandlers(r)
 
 	rgMobilink := r.Group("/mobilink_handler")
-	rgMobilink.GET("", mobilink.MobilinkHandler)
+	rgMobilink.POST("", mobilink.MobilinkHandler)
 
 	rg := r.Group("/debug")
 	rg.GET("/vars", expvar.Handler())
