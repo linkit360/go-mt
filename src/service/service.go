@@ -151,7 +151,7 @@ func processSubscriptions() {
 
 	for _, record := range records {
 		go func(r rec.Record) {
-			handle(record)
+			handle(r)
 		}(record)
 	}
 	return
@@ -160,7 +160,7 @@ func processSubscriptions() {
 func smsSend(subscription rec.Record, msg string) error {
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
-		return svc.mobilink.SMS(subscription.Msisdn, msg)
+		return svc.mobilink.SMS(subscription.Tid, subscription.Msisdn, msg)
 	default:
 		log.WithFields(log.Fields{
 			"subscription": subscription,
@@ -171,13 +171,16 @@ func smsSend(subscription rec.Record, msg string) error {
 }
 
 func handle(subscription rec.Record) error {
-	logCtx := log.WithFields(log.Fields{"subscription": subscription})
+	//logCtx := log.WithFields(log.Fields{"subscription": subscription})
+	logCtx := log.WithFields(log.Fields{})
+	logCtx.Debug("start processsing subscription")
 
 	mService, ok := memServices.Map[subscription.ServiceId]
 	if !ok {
 		logCtx.Error("service not found")
 		return fmt.Errorf("Service id %d not found", subscription.ServiceId)
 	}
+	logCtx.WithField("service", mService).Debug("found service")
 	// misconfigured price
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
@@ -188,25 +191,38 @@ func handle(subscription rec.Record) error {
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
 	if mService.PaidHours > 0 {
+		logCtx.Debug("service paid hours > 0")
 		previous, err := subscription.GetPreviousSubscription()
 		if err == sql.ErrNoRows {
-			// ok
+			logCtx.Debug("no previous subscription found")
+			err = nil
 		} else if err != nil {
-			logCtx.WithField("error", err.Error()).Error("")
+			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
 			return fmt.Errorf("Get previous subscription: %s", err.Error())
 		} else {
 			if time.Now().Sub(previous.CreatedAt).Hours() >
 				(time.Duration(subscription.DelayHours) * time.Hour).Hours() {
-				logCtx.Info("paid hours aren't passed")
+				log.WithFields(log.Fields{
+					"time":     time.Now(),
+					"previous": previous.CreatedAt,
+				}).Info("paid hours aren't passed")
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
 				subscription.WriteSubscriptionStatus()
 				subscription.WriteTransaction()
 				return nil
+			} else {
+				log.WithFields(log.Fields{
+					"time":     time.Now(),
+					"previous": previous.CreatedAt,
+				}).Debug("previous subscription time elapsed, proceed")
 			}
 		}
+	} else {
+		logCtx.Debug("service paid hours == 0")
 	}
 
+	logCtx.Debug("check blacklist")
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
 		logCtx.Info("blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
@@ -214,8 +230,10 @@ func handle(subscription rec.Record) error {
 		return nil
 	}
 
+	logCtx.Debug("send to operator")
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
+		logCtx.Debug("mobilink")
 		svc.mobilink.Publish(subscription)
 	default:
 		log.WithField("subscription", subscription).Error("Not applicable to any operator")
@@ -242,7 +260,9 @@ func getResponses() {
 }
 
 func handleResponse(record rec.Record) {
-	logCtx := log.WithField("subscription", record)
+	//logCtx := log.WithField("subscription", record)
+	logCtx := log.WithFields(log.Fields{})
+	logCtx.Info("start processing response")
 
 	if len(record.OperatorToken) > 0 && record.OperatorErr == "" {
 		record.SubscriptionStatus = "paid"
@@ -259,20 +279,29 @@ func handleResponse(record rec.Record) {
 			record.Result = "failed"
 		}
 	}
-	logCtx.WithField("status", record.Result).Info("got response")
+	logCtx.WithFields(log.Fields{
+		"result": record.Result,
+		"status": record.SubscriptionStatus,
+	}).Info("got response")
 
 	if err := record.WriteSubscriptionStatus(); err != nil {
-		logCtx.WithField("error", err.Error()).Error("Write Subscription Status failed")
+		// already logged inside, wuth query
 	}
 	if err := record.WriteTransaction(); err != nil {
-		logCtx.WithField("error", err.Error()).Error("Write Transaction failed")
+		// already logged inside, wuth query
 	}
 
 	// add retries
 	if record.AttemptsCount == 0 && record.SubscriptionStatus == "failed" {
+		logCtx.WithFields(log.Fields{
+			"action": "move to retry",
+		}).Debug("subscription")
+
 		mService, ok := memServices.Map[record.ServiceId]
 		if !ok {
-			logCtx.WithField("error", "Service not found").Error(record.ServiceId)
+			logCtx.WithFields(log.Fields{
+				"error": "Service not found",
+			}).Error("cannot process subscription")
 			return
 		}
 		record.DelayHours = mService.DelayHours
@@ -280,12 +309,27 @@ func handleResponse(record rec.Record) {
 
 		if mService.SMSSend == 1 {
 			logCtx.WithField("sms", "send").Info(mService.SMSNotPaidText)
-			smsSend(record, mService.SMSNotPaidText)
+
+			smsTranasction := record
+			smsTranasction.Result = "sms"
+			err := smsSend(record, mService.SMSNotPaidText)
+			if err != nil {
+				smsTranasction.OperatorErr = fmt.Errorf("SMS Send: %s", err.Error()).Error()
+				logCtx.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("sms send")
+			}
+			if err := smsTranasction.WriteTransaction(); err != nil {
+				logCtx.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("failed to write sms transaction")
+			}
+
 		}
 
-		logCtx.Info("start retry..")
+		logCtx.Info("add to retries")
 		if err := record.StartRetry(); err != nil {
-			logCtx.WithField("error", err.Error()).Error("start retry failed")
+			logCtx.WithField("error", err.Error()).Error("add to retries failed")
 			return
 		}
 	}
@@ -302,9 +346,9 @@ func handleResponse(record rec.Record) {
 			remove = true
 		}
 		if remove {
-			logCtx.Info("remove retry..")
+			logCtx.Info("remove from retries")
 			if err := record.RemoveRetry(); err != nil {
-				logCtx.WithField("error", err.Error()).Error("remove retry failed")
+				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
 				return
 			}
 		} else {

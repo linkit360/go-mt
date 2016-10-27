@@ -153,7 +153,7 @@ func (mb Mobilink) readChan() {
 	for record := range mb.mtChannel {
 		<-throttle
 		var err error
-		record.OperatorToken, err = mb.mt(record.Msisdn, record.Price)
+		record.OperatorToken, err = mb.mt(record.Tid, record.Msisdn, record.Price)
 		if err != nil {
 			record.OperatorErr = err.Error()
 		}
@@ -161,16 +161,25 @@ func (mb Mobilink) readChan() {
 	}
 }
 
-func (mb Mobilink) mt(msisdn string, price int) (string, error) {
+func (mb Mobilink) mt(tid, msisdn string, price int) (string, error) {
 
 	if !Belongs(msisdn) {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,
+			"tid":    tid,
 		}).Debug("is not mobilink")
 		return "", nil
 	}
+
 	token := getToken(msisdn)
 	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
+
+	log.WithFields(log.Fields{
+		"token":  token,
+		"tid":    tid,
+		"msisdn": msisdn,
+		"time":   now,
+	}).Debug("prepare to send to mobilink")
 
 	s := mb.conf.PostXMLBody
 	s = strings.Replace(s, "%price%", strconv.Itoa(price), 1)
@@ -181,7 +190,11 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(s))
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error": err.Error(),
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err.Error(),
 		}).Error("create POST req to mobilink")
 		err = fmt.Errorf("http.NewRequest: %s", err.Error())
 		return "", err
@@ -195,7 +208,11 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	resp, err := mb.client.Do(req)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error": err,
+			"error":  err,
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
 		}).Error("do request to mobilink")
 		err = fmt.Errorf("client.Do: %s", err.Error())
 		return "", err
@@ -204,7 +221,11 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	html_data, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error": err,
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err,
 		}).Error("get raw body of mobilink response")
 		err = fmt.Errorf("ioutil.ReadAll: %s", err.Error())
 		return "", err
@@ -216,6 +237,7 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 			log.WithFields(log.Fields{
 				"msisdn": msisdn,
 				"token":  token,
+				"tid":    tid,
 				"price":  price,
 			}).Info("charged")
 			return token, nil
@@ -225,7 +247,7 @@ func (mb Mobilink) mt(msisdn string, price int) (string, error) {
 	return token, errors.New("Charge has failed")
 }
 
-func (mb Mobilink) SMS(msisdn, msg string) error {
+func (mb Mobilink) SMS(tid, msisdn, msg string) error {
 	shortMsg, err := mb.smpp.Submit(&smpp_client.ShortMessage{
 		Src:      mb.conf.Connection.Smpp.ShortNumber,
 		Dst:      "00" + msisdn[2:],
@@ -237,6 +259,7 @@ func (mb Mobilink) SMS(msisdn, msg string) error {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,
 			"msg":    msg,
+			"tid":    tid,
 			"error":  err.Error(),
 		}).Error("counldn't sed sms: service unavialable")
 		return fmt.Errorf("smpp.Submit: %s", err.Error())
@@ -245,6 +268,7 @@ func (mb Mobilink) SMS(msisdn, msg string) error {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,
 			"msg":    msg,
+			"tid":    tid,
 			"error":  err.Error(),
 		}).Error("counldn't sed sms: bad request")
 		return fmt.Errorf("smpp.Submit: %s", err.Error())
@@ -253,6 +277,7 @@ func (mb Mobilink) SMS(msisdn, msg string) error {
 	log.WithFields(log.Fields{
 		"msisdn": msisdn,
 		"msg":    msg,
+		"tid":    tid,
 		"respid": shortMsg.RespID(),
 	}).Error("sms sent")
 	return nil

@@ -16,24 +16,25 @@ var mutSubscriptions sync.RWMutex
 var mutTransactions sync.RWMutex
 
 type Record struct {
-	Msisdn             string
-	Result             string
-	SubscriptionStatus string
-	OperatorCode       int64
-	CountryCode        int64
-	ServiceId          int64
-	SubscriptionId     int64
-	CampaignId         int64
-	RetryId            int64
-	CreatedAt          time.Time
-	LastPayAttemptAt   time.Time
-	AttemptsCount      int
-	KeepDays           int
-	DelayHours         int
-	OperatorName       string
-	OperatorToken      string
-	OperatorErr        string
-	Price              int
+	Msisdn             string    `json:",omitempty"`
+	Tid                string    `json:",omitempty"`
+	Result             string    `json:",omitempty"`
+	SubscriptionStatus string    `json:",omitempty"`
+	OperatorCode       int64     `json:",omitempty"`
+	CountryCode        int64     `json:",omitempty"`
+	ServiceId          int64     `json:",omitempty"`
+	SubscriptionId     int64     `json:",omitempty"`
+	CampaignId         int64     `json:",omitempty"`
+	RetryId            int64     `json:",omitempty"`
+	CreatedAt          time.Time `json:",omitempty"`
+	LastPayAttemptAt   time.Time `json:",omitempty"`
+	AttemptsCount      int       `json:",omitempty"`
+	KeepDays           int       `json:",omitempty"`
+	DelayHours         int       `json:",omitempty"`
+	OperatorName       string    `json:",omitempty"`
+	OperatorToken      string    `json:",omitempty"`
+	OperatorErr        string    `json:",omitempty"`
+	Price              int       `json:",omitempty"`
 }
 
 var db *sql.DB
@@ -51,6 +52,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 	var subscr []Record
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
+		"tid, "+
 		"msisdn, "+
 		"id_service, "+
 		"id_campaign, "+
@@ -73,6 +75,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 
 		if err := rows.Scan(
 			&record.SubscriptionId,
+			&record.Tid,
 			&record.Msisdn,
 			&record.ServiceId,
 			&record.CampaignId,
@@ -210,15 +213,14 @@ func (t Record) WriteTransaction() error {
 		log.WithFields(log.Fields{
 			"error ":      err.Error(),
 			"query":       query,
-			"transaction": t}).
-			Error("record transaction failed")
+			"transaction": t,
+		}).Error("record transaction failed")
 		return fmt.Errorf("QueryExec: %s", err.Error())
 	}
 
 	log.WithFields(log.Fields{
-		"query":       query,
 		"transaction": t,
-	}).Info("record transaction done")
+	}).Info("write transaction done")
 	return nil
 }
 
@@ -250,7 +252,7 @@ func (subscription Record) WriteSubscriptionStatus() error {
 	log.WithFields(log.Fields{
 		"query":        query,
 		"subscription": subscription,
-	}).Info("notify paid subscription done")
+	}).Info("write subscription done")
 	return nil
 }
 

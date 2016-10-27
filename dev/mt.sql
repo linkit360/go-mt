@@ -17,9 +17,10 @@ ALTER TABLE xmp_subscriptions ADD COLUMN keep_days INT NOT NULL DEFAULT 10;
 ALTER TABLE xmp_subscriptions ADD COLUMN attempts_count INT NOT NULL DEFAULT 0;
 ALTER TABLE xmp_subscriptions ADD COLUMN last_pay_attempt_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE xmp_subscriptions ADD COLUMN price int NOT NULL;
+ALTER TABLE xmp_subscriptions ADD COLUMN tid varchar(127) NOT NULL DEFAULT '';
 
 -- transactions table
-CREATE TYPE transaction_result AS ENUM ('failed', 'paid', 'retry_failed', 'retry_paid', 'rejected', 'past');
+CREATE TYPE transaction_result AS ENUM ('failed', 'sms', 'paid', 'retry_failed', 'retry_paid', 'rejected', 'past');
 ALTER TABLE xmp_transactions ADD COLUMN result transaction_result NOT NULL;
 UPDATE xmp_transactions SET result = 'past' WHERE created_at < now();
 ALTER TABLE xmp_transactions ADD COLUMN operator_token VARCHAR(511) NOT NULL;
