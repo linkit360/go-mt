@@ -181,7 +181,7 @@ func smsSend(subscription rec.Record, msg string) error {
 
 func handle(subscription rec.Record) error {
 	//logCtx := log.WithFields(log.Fields{"subscription": subscription})
-	logCtx := log.WithFields(log.Fields{})
+	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
 	logCtx.Debug("start processsing subscription")
 
 	mService, ok := memServices.Map[subscription.ServiceId]

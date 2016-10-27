@@ -260,7 +260,13 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 			return token, nil
 		}
 	}
-	log.WithField("body", html_data).Info("charge has failed")
+	log.WithFields(log.Fields{
+		"msisdn": msisdn,
+		"token":  token,
+		"tid":    tid,
+		"price":  price,
+		"body":   strings.TrimSpace(string(html_data)),
+	}).Info("charge has failed")
 	return token, errors.New("Charge has failed")
 }
 
