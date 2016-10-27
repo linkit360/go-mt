@@ -58,14 +58,17 @@ func Init(sConf MTServiceConfig) {
 	}()
 
 	go func() {
-		for range time.Tick(time.Duration(10) * time.Second) {
+		for {
+			begin := time.Now()
 			log.Debug("process all responses")
-
 			for record := range svc.mobilink.Response {
 				go func(r rec.Record) {
 					handleResponse(record)
 				}(record)
 			}
+			log.WithFields(log.Fields{
+				"took": time.Since(begin),
+			}).Debug("process all responses")
 		}
 	}()
 }
@@ -98,6 +101,12 @@ func processRetries() {
 		"count": len(retries),
 	}).Info("retries")
 
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("process retries")
+	}()
 	for _, r := range retries {
 		now := time.Now()
 		makeAttempt := false
@@ -130,11 +139,15 @@ func processRetries() {
 
 func buzyCheck() bool {
 	log.Info("buzy check")
-
+	if len(svc.mobilink.Response) > 0 {
+		log.WithFields(log.Fields{
+			"responses": "mobilink",
+		}).Debug("have to process all responses")
+	}
 	if svc.mobilink.GetMTChanGap() > 0 {
 		log.WithFields(log.Fields{
-			"awaiting": "mobilink",
-		}).Error("mobilink has not finished yet")
+			"tarifficate": "mobilink",
+		}).Debug("tariffications requests are still not empty")
 		return true
 	}
 	return false
@@ -156,6 +169,12 @@ func processSubscriptions() {
 		"count": len(records),
 	}).Info("subscriptions")
 
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("process subscriptions")
+	}()
 	for _, record := range records {
 		go func(r rec.Record) {
 			handle(r)

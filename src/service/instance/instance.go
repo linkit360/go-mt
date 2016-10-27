@@ -49,6 +49,12 @@ func Init(dbC db_conn.DataBaseConfig) {
 }
 
 func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("get notpaid subscriptions")
+	}()
 	var subscr []Record
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
@@ -94,6 +100,12 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 }
 
 func GetRetryTransactions(batchLimit int) ([]Record, error) {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("get retry transactions")
+	}()
 	var retries []Record
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
@@ -151,7 +163,12 @@ type PreviuosSubscription struct {
 }
 
 func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
-
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("get previous subscription")
+	}()
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
 		"created_at "+
@@ -182,6 +199,12 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 	return p, nil
 }
 func (t Record) WriteTransaction() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("write transaction")
+	}()
 	query := fmt.Sprintf("INSERT INTO %stransactions ("+
 		"msisdn, "+
 		"result, "+
@@ -225,6 +248,12 @@ func (t Record) WriteTransaction() error {
 }
 
 func (subscription Record) WriteSubscriptionStatus() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("write subscription status")
+	}()
 	query := fmt.Sprintf("UPDATE %ssubscriptions SET "+
 		"result = $1, "+
 		"attempts_count = attempts_count + 1, "+
@@ -257,6 +286,12 @@ func (subscription Record) WriteSubscriptionStatus() error {
 }
 
 func (r Record) RemoveRetry() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("remove retry")
+	}()
 	query := fmt.Sprintf("DELETE FROM %sretries WHERE id = $1", dbConf.TablePrefix)
 
 	_, err := db.Exec(query, r.RetryId)
@@ -277,6 +312,12 @@ func (r Record) RemoveRetry() error {
 }
 
 func (r Record) TouchRetry() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("touch retry")
+	}()
 	query := fmt.Sprintf("UPDATE %sretries SET "+
 		"last_pay_attempt_at = $1 "+
 		"attempts_count = attempts_count + 1 "+
@@ -302,6 +343,12 @@ func (r Record) TouchRetry() error {
 }
 
 func (r Record) StartRetry() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"took": time.Since(begin),
+		}).Debug("add retry")
+	}()
 	if r.KeepDays == 0 {
 		return fmt.Errorf("Retry Keep Days required, service id: %s", r.ServiceId)
 	}
