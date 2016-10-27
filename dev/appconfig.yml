@@ -6,9 +6,9 @@ newrelic:
   license: 4d635427ad90ca786ca2db6aa246ed651730b933
 
 service:
-  subscriptions_period: 1
+  subscriptions_period: 600
   subscriptions_count: 500
-  retry_period: 1
+  retry_period: 600
   retry_count: 500
 
   db:

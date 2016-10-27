@@ -279,7 +279,6 @@ func (subscription Record) WriteSubscriptionStatus() error {
 	}
 
 	log.WithFields(log.Fields{
-		"query":        query,
 		"subscription": subscription,
 	}).Info("write subscription done")
 	return nil
