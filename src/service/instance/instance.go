@@ -32,7 +32,7 @@ type Record struct {
 	DelayHours         int
 	OperatorName       string
 	OperatorToken      string
-	OperatorErr        error
+	OperatorErr        string
 	Price              int
 }
 
@@ -56,8 +56,9 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		"id_campaign, "+
 		"operator_code, "+
 		"country_code "+
-		" FROM %ssubscriptions WHERE"+
-		" result = '' OR result = 'failed' ORDER BY id DESC LIMIT %s",
+		" FROM %ssubscriptions "+
+		" WHERE result = '' "+
+		" ORDER BY id DESC LIMIT %s",
 		dbConf.TablePrefix,
 		strconv.Itoa(batchLimit),
 	)
@@ -104,7 +105,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"id_subscription, "+
 		"id_campaign "+
 		"FROM %sretries "+
-		"WHERE last_pay_attempt_at > (CURRENT_TIMESTAMP - delay_hours * INTERVAL '1 hour' )"+
+		"WHERE last_pay_attempt_at > (CURRENT_TIMESTAMP - delay_hours * INTERVAL '1 hour' ) "+
 		"ORDER BY last_pay_attempt_at DESC LIMIT %s", // get the last touched
 		dbConf.TablePrefix,
 		strconv.Itoa(batchLimit),
@@ -141,47 +142,41 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 	return retries, nil
 }
 
-func (t Record) GetPreviousSubscription() (Record, error) {
+type PreviuosSubscription struct {
+	Id        int64
+	CreatedAt time.Time
+}
 
-	query := fmt.Sprintf("SELECT id, "+
+func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
+
+	query := fmt.Sprintf("SELECT "+
 		"id, "+
-		"created_at, "+
-		"last_pay_attempt_at, "+
-		"attempts_count, "+
-		"keep_days, "+
-		"msisdn, "+
-		"operator_code, "+
-		"country_code, "+
-		"id_service, "+
-		"id_subscription, "+
-		"id_campaign "+
+		"created_at "+
 		"FROM %ssubscriptions "+
-		"WHERE id != $1 ORDER BY created_at DESC LIMIT 1",
+		"WHERE id != $1 AND "+
+		"msisdn != $2 AND "+
+		"id_service != $3 "+
+		"ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
-
-	var subscription Record
 
 	mutSubscriptions.Lock()
 	defer mutSubscriptions.Unlock()
-	if err := db.QueryRow(query, t.SubscriptionId).Scan(
-		&subscription.RetryId,
-		&subscription.CreatedAt,
-		&subscription.LastPayAttemptAt,
-		&subscription.AttemptsCount,
-		&subscription.KeepDays,
-		&subscription.Msisdn,
-		&subscription.OperatorCode,
-		&subscription.CountryCode,
-		&subscription.ServiceId,
-		&subscription.SubscriptionId,
-		&subscription.CampaignId,
+
+	var p PreviuosSubscription
+	if err := db.QueryRow(query,
+		t.SubscriptionId,
+		t.Msisdn,
+		t.ServiceId,
+	).Scan(
+		&p.Id,
+		&p.CreatedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
-			return subscription, err
+			return p, err
 		}
-		return subscription, fmt.Errorf("db.QueryRow: %s, query: %s", err.Error(), query)
+		return p, fmt.Errorf("db.QueryRow: %s, query: %s", err.Error(), query)
 	}
-	return subscription, nil
+	return p, nil
 }
 func (t Record) WriteTransaction() error {
 	query := fmt.Sprintf("INSERT INTO %stransactions ("+
@@ -193,8 +188,8 @@ func (t Record) WriteTransaction() error {
 		"id_subscription, "+
 		"id_campaign, "+
 		"operator_token, "+
-		"price, "+
-		") VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		"price "+
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		dbConf.TablePrefix)
 
 	mutTransactions.Lock()
@@ -228,14 +223,19 @@ func (t Record) WriteTransaction() error {
 }
 
 func (subscription Record) WriteSubscriptionStatus() error {
-	query := fmt.Sprintf("UPDATE %ssubscriptions "+
-		" set result = $1, attempts_count = attempts_count + 1 where id = $2", dbConf.TablePrefix)
+	query := fmt.Sprintf("UPDATE %ssubscriptions SET "+
+		"result = $1, "+
+		"attempts_count = attempts_count + 1, "+
+		"last_pay_attempt_at = $2 "+
+		"where id = $3", dbConf.TablePrefix)
 
 	mutSubscriptions.Lock()
 	defer mutSubscriptions.Unlock()
 
+	lastPayAttemptAt := time.Now()
 	_, err := db.Exec(query,
 		subscription.SubscriptionStatus,
+		lastPayAttemptAt,
 		subscription.SubscriptionId,
 	)
 	if err != nil {

@@ -70,10 +70,10 @@ type MTService struct {
 	operatorResponses chan rec.Record
 }
 type MTServiceConfig struct {
-	SubscriptionsSec   int               `yaml:"subscriptions_period"`
-	SubscriptionsCount int               `yaml:"subscriptions_count"`
-	RetrySec           int               `yaml:"retry_period"`
-	RetryCount         int               `yaml:"retry_count"`
+	SubscriptionsSec   int               `default:"600" yaml:"subscriptions_period"`
+	SubscriptionsCount int               `default:"600" yaml:"subscriptions_count"`
+	RetrySec           int               `default:"600" yaml:"retry_period"`
+	RetryCount         int               `default:"600" yaml:"retry_count"`
 	DbConf             db.DataBaseConfig `yaml:"db"`
 	Mobilink           mobilink.Config   `yaml:"mobilink"`
 }
@@ -244,7 +244,7 @@ func getResponses() {
 func handleResponse(record rec.Record) {
 	logCtx := log.WithField("subscription", record)
 
-	if len(record.OperatorToken) > 0 && record.OperatorErr == nil {
+	if len(record.OperatorToken) > 0 && record.OperatorErr == "" {
 		record.SubscriptionStatus = "paid"
 		if record.AttemptsCount >= 1 {
 			record.Result = "retry_paid"

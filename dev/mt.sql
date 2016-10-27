@@ -13,7 +13,9 @@ CREATE TYPE subscription_status AS ENUM ('', 'failed', 'paid', 'blacklisted', 'r
 ALTER TABLE xmp_subscriptions ADD COLUMN result subscription_status NOT NULL DEFAULT '';
 UPDATE xmp_subscriptions SET result = 'past' WHERE created_at < now();
 
+ALTER TABLE xmp_subscriptions ADD COLUMN keep_days INT NOT NULL DEFAULT 10;
 ALTER TABLE xmp_subscriptions ADD COLUMN attempts_count INT NOT NULL DEFAULT 0;
+ALTER TABLE xmp_subscriptions ADD COLUMN last_pay_attempt_at TIMESTAMP NOT NULL DEFAULT NOW();
 ALTER TABLE xmp_subscriptions ADD COLUMN price int NOT NULL;
 
 -- transactions table

@@ -152,7 +152,11 @@ func (mb Mobilink) readChan() {
 	throttle := time.Tick(rate)
 	for record := range mb.mtChannel {
 		<-throttle
-		record.OperatorToken, record.OperatorErr = mb.mt(record.Msisdn, record.Price)
+		var err error
+		record.OperatorToken, err = mb.mt(record.Msisdn, record.Price)
+		if err != nil {
+			record.OperatorErr = err.Error()
+		}
 		mb.Response <- record
 	}
 }
