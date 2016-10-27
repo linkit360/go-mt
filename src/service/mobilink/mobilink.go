@@ -18,6 +18,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	smpp_client "github.com/fiorix/go-smpp/smpp"
 	"github.com/fiorix/go-smpp/smpp/pdu/pdutext"
+	"github.com/gin-gonic/gin"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/expvar"
 	"github.com/nu7hatch/gouuid"
@@ -304,4 +305,9 @@ func (mb *Mobilink) SMS(tid, msisdn, msg string) error {
 		"respid": shortMsg.RespID(),
 	}).Error("sms sent")
 	return nil
+}
+
+func MobilinkHandler(c *gin.Context) {
+	c.Writer.WriteHeader(200)
+	c.Writer.Write([]byte(`<value><i4>0</i4></value>`))
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/vostrok/mt/src/metrics"
 	"github.com/vostrok/mt/src/newrelic"
 	"github.com/vostrok/mt/src/service"
+	"github.com/vostrok/mt/src/service/mobilink"
 )
 
 func RunServer() {
@@ -30,6 +31,9 @@ func RunServer() {
 	r := gin.New()
 
 	service.AddCQRHandlers(r)
+
+	rgMobilink := r.Group("/mobilink_handler")
+	rgMobilink.GET("", mobilink.MobilinkHandler)
 
 	rg := r.Group("/debug")
 	rg.GET("/vars", expvar.Handler())
