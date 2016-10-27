@@ -36,10 +36,11 @@ type Mobilink struct {
 	smpp      *smpp_client.Transmitter
 }
 type Config struct {
-	Enabled     bool              `default:"true" yaml:"enabled"`
-	Connection  ConnnectionConfig `yaml:"connection"`
-	Location    string            `default:"Asia/Karachi" yaml:"location"`
-	PostXMLBody string            `yaml:"mt_body"`
+	Enabled        bool              `default:"true" yaml:"enabled"`
+	MTChanCapacity int               `default:"1000" yaml:"channel_camacity"`
+	Connection     ConnnectionConfig `yaml:"connection"`
+	Location       string            `default:"Asia/Karachi" yaml:"location"`
+	PostXMLBody    string            `yaml:"mt_body"`
 }
 
 type ConnnectionConfig struct {
@@ -70,58 +71,67 @@ func initMetrics() Metrics {
 	}
 }
 
-func Init(rps int, conf Config) Mobilink {
-	var mobilink Mobilink
-	mobilink.rps = rps
-	mobilink.mtChannel = make(chan rec.Record)
-	mobilink.Response = make(chan rec.Record)
+// todo: chan gap cannot be too big bzs of the size
 
-	mobilink.conf = conf
-	mobilink.metrics = initMetrics()
+func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
+	mb := &Mobilink{
+		rps:     mobilinkRps,
+		conf:    mobilinkConf,
+		metrics: initMetrics(),
+	}
+	log.Info("mb metrics init done")
+	mb.mtChannel = make(chan rec.Record, mobilinkConf.MTChanCapacity)
+	mb.Response = make(chan rec.Record, mobilinkConf.MTChanCapacity)
 
 	var err error
-	mobilink.location, err = time.LoadLocation(conf.Location)
-
-	mobilink.client = &http.Client{
-		Timeout: time.Duration(conf.Connection.MT.TimeoutSec) * time.Second,
-	}
-
+	mb.location, err = time.LoadLocation(mobilinkConf.Location)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"location": conf.Location,
+			"location": mobilinkConf.Location,
 			"error":    err,
 		}).Fatal("init location")
 	}
-	mobilink.smpp = &smpp_client.Transmitter{
-		Addr:        conf.Connection.Smpp.Addr,
-		User:        conf.Connection.Smpp.User,
-		Passwd:      conf.Connection.Smpp.Password,
-		RespTimeout: time.Duration(conf.Connection.Smpp.Timeout) * time.Second,
+	log.Debug("location init done")
+
+	mb.client = &http.Client{
+		Timeout: time.Duration(mobilinkConf.Connection.MT.TimeoutSec) * time.Second,
+	}
+	log.Debug("http client init done")
+
+	mb.smpp = &smpp_client.Transmitter{
+		Addr:        mobilinkConf.Connection.Smpp.Addr,
+		User:        mobilinkConf.Connection.Smpp.User,
+		Passwd:      mobilinkConf.Connection.Smpp.Password,
+		RespTimeout: time.Duration(mobilinkConf.Connection.Smpp.Timeout) * time.Second,
 		SystemType:  "SMPP",
 	}
+	log.Debug("smpp client init done")
 
-	connStatus := mobilink.smpp.Bind()
+	connStatus := mb.smpp.Bind()
 	go func() {
-
 		for c := range connStatus {
 			if c.Status().String() != "Connected" {
-				mobilink.metrics.SMPPConnected.Set(0)
+				mb.metrics.SMPPConnected.Set(0)
 				log.WithFields(log.Fields{
 					"operator": "mobilink",
 					"status":   c.Status().String(),
 					"error":    "disconnected:" + c.Status().String(),
 				}).Error("smpp moblink connect status")
 			} else {
-				mobilink.metrics.SMPPConnected.Set(1)
+				log.WithFields(log.Fields{
+					"operator": "mobilink",
+					"status":   c.Status().String(),
+				}).Info("smpp moblink connect status")
+				mb.metrics.SMPPConnected.Set(1)
 			}
 		}
 	}()
 
 	go func() {
-		mobilink.readChan()
+		mb.mtReader()
 	}()
 
-	return mobilink
+	return mb
 }
 
 // prefix from table
@@ -138,31 +148,38 @@ func getToken(msisdn string) string {
 	return fmt.Sprintf("%d-%s-%s", time.Now().Unix(), msisdn, u4)
 }
 
-func (mb Mobilink) Publish(r rec.Record) {
+func (mb *Mobilink) Publish(r rec.Record) {
+	log.WithField("rec", r).Debug("publish")
 	mb.mtChannel <- r
 }
 
-func (mb Mobilink) GetMTChanGap() int {
+func (mb *Mobilink) GetMTChanGap() int {
 	return len(mb.mtChannel)
 }
 
 // rate limit our Service.Method RPCs
-func (mb Mobilink) readChan() {
-	rate := time.Second / (time.Duration(mb.rps) * time.Second)
-	throttle := time.Tick(rate)
-	for record := range mb.mtChannel {
-		<-throttle
-		var err error
-		record.OperatorToken, err = mb.mt(record.Tid, record.Msisdn, record.Price)
-		if err != nil {
-			record.OperatorErr = err.Error()
+func (mb *Mobilink) mtReader() {
+	log.WithFields(log.Fields{}).Info("runninng read from channel")
+	for {
+		throttle := time.Tick(time.Millisecond * 200)
+		for record := range mb.mtChannel {
+			log.WithFields(log.Fields{
+				"rec":      record,
+				"throttle": throttle,
+			}).Info("mobilink accept from channel")
+			<-throttle
+			var err error
+
+			record.OperatorToken, err = mb.mt(record.Tid, record.Msisdn, record.Price)
+			if err != nil {
+				record.OperatorErr = err.Error()
+			}
+			mb.Response <- record
 		}
-		mb.Response <- record
 	}
 }
 
-func (mb Mobilink) mt(tid, msisdn string, price int) (string, error) {
-
+func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	if !Belongs(msisdn) {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,
@@ -247,7 +264,7 @@ func (mb Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	return token, errors.New("Charge has failed")
 }
 
-func (mb Mobilink) SMS(tid, msisdn, msg string) error {
+func (mb *Mobilink) SMS(tid, msisdn, msg string) error {
 	shortMsg, err := mb.smpp.Submit(&smpp_client.ShortMessage{
 		Src:      mb.conf.Connection.Smpp.ShortNumber,
 		Dst:      "00" + msisdn[2:],

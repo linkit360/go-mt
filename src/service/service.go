@@ -32,7 +32,6 @@ func Init(sConf MTServiceConfig) {
 	log.SetLevel(log.DebugLevel)
 
 	svc.sConfig = sConf
-	svc.operatorResponses = make(chan rec.Record)
 	rec.Init(sConf.DbConf)
 
 	if err := initInMem(sConf.DbConf); err != nil {
@@ -44,6 +43,7 @@ func Init(sConf MTServiceConfig) {
 	if !ok {
 		log.WithField("error", "no db record for mobilink").Fatal("get mobilink from db")
 	}
+
 	svc.mobilink = mobilink.Init(mobilinkDb.Rps, sConf.Mobilink)
 	log.Info("mt service init ok")
 
@@ -60,14 +60,21 @@ func Init(sConf MTServiceConfig) {
 	}()
 
 	go func() {
-		getResponses()
+		for range time.Tick(time.Duration(10) * time.Second) {
+			log.Debug("process all responses")
+
+			for record := range svc.mobilink.Response {
+				go func(r rec.Record) {
+					handleResponse(record)
+				}(record)
+			}
+		}
 	}()
 }
 
 type MTService struct {
-	sConfig           MTServiceConfig
-	mobilink          mobilink.Mobilink
-	operatorResponses chan rec.Record
+	sConfig  MTServiceConfig
+	mobilink *mobilink.Mobilink
 }
 type MTServiceConfig struct {
 	SubscriptionsSec   int               `default:"600" yaml:"subscriptions_period"`
@@ -124,6 +131,8 @@ func processRetries() {
 }
 
 func buzyCheck() bool {
+	log.Info("buzy check")
+
 	if svc.mobilink.GetMTChanGap() > 0 {
 		log.WithFields(log.Fields{
 			"awaiting": "mobilink",
@@ -233,30 +242,13 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("send to operator")
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
-		logCtx.Debug("mobilink")
+		logCtx.Debug("sent to mobilink channel")
 		svc.mobilink.Publish(subscription)
 	default:
 		log.WithField("subscription", subscription).Error("Not applicable to any operator")
 		return fmt.Errorf("Msisdn %s is not applicable to any operator", subscription.Msisdn)
 	}
 	return nil
-}
-
-func getResponses() {
-
-	for {
-		select {
-		case subscription := <-svc.mobilink.Response:
-			svc.operatorResponses <- subscription
-		}
-	}
-
-	for record := range svc.operatorResponses {
-		go func(r rec.Record) {
-			handleResponse(record)
-		}(record)
-	}
-
 }
 
 func handleResponse(record rec.Record) {
