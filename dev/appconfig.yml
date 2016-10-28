@@ -6,9 +6,9 @@ newrelic:
   license: 4d635427ad90ca786ca2db6aa246ed651730b933
 
 service:
-  subscriptions_period: 600
+  subscriptions_period: 10
   subscriptions_count: 500
-  retry_period: 600
+  retry_period: 10
   retry_count: 500
 
   db:
@@ -31,8 +31,8 @@ service:
     location: Asia/Karachi
     connection:
       mt:
-        # url: http://182.16.255.46:10020/Air
-        url: http://localhost:50305/mobilink_handler
+        url: http://182.16.255.46:10020/Air
+        # url: http://localhost:50305/mobilink_handler
         headers:
           Content-Type: text/xml
           Authorization: Basic SU5UTE5LVVI6TGluayMwMTAx
