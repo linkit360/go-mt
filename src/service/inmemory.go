@@ -241,7 +241,7 @@ type response struct {
 
 func AddCQRHandlers(r *gin.Engine) {
 	rg := r.Group("/cqr")
-	rg.GET("/", Reload)
+	rg.GET("", Reload)
 }
 
 func Reload(c *gin.Context) {

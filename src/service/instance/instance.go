@@ -3,13 +3,13 @@ package instance
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 
 	db_conn "github.com/vostrok/db"
-	"strconv"
-	"sync"
 )
 
 var mutSubscriptions sync.RWMutex
