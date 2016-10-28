@@ -8,11 +8,6 @@ UPDATE xmp_operators SET rps = 10 WHERE "name" = 'Mobilink';
 ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 0;
 UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
 
--- subscriptions table
-CREATE TYPE subscription_status AS ENUM ('', 'failed', 'paid', 'blacklisted', 'rejected', 'past', 'canceled');
-ALTER TABLE xmp_subscriptions ADD COLUMN result subscription_status NOT NULL DEFAULT '';
-UPDATE xmp_subscriptions SET result = 'past' WHERE created_at < now();
-
 CREATE TABLE public.xmp_subscriptions (
     id SERIAL,
     last_success_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),

@@ -15,11 +15,11 @@ service:
     conn_ttl: -1
     max_conns: 15
     timeout: 30
-    name: linkit_dev
-    user: linkit
-    pass: E0kZN8pUAs63wePepf
+    name: linkit_mobilink
+    user: linkit_mobilink
+    pass: A0kZN8pUAs63wePezz
     port: 5432
-    host: linkit.cz3twmoynbq5.eu-central-1.rds.amazonaws.com
+    host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
     ssl_mode: disable
     table_prefix: xmp_
 
