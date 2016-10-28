@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/gin-gonic/gin"
 
 	"github.com/vostrok/db"
@@ -111,24 +113,41 @@ type BlackList struct {
 	Map map[string]struct{}
 }
 
-func (bl *BlackList) Reload() error {
+func (bl *BlackList) Reload() (err error) {
+	log.WithFields(log.Fields{}).Debug("blacklist reload...")
+	begin := time.Now()
+	defer func(err error) {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		log.WithFields(log.Fields{
+			"error": errStr,
+			"took":  time.Since(begin),
+		}).Debug("blacklist reload")
+	}(err)
+
 	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.sConfig.DbConf.TablePrefix)
-	rows, err := dbConn.Query(query)
+	var rows *sql.Rows
+	rows, err = dbConn.Query(query)
 	if err != nil {
-		return fmt.Errorf("BlackList QueryServices: %s, query: %s", err.Error(), query)
+		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+		return
 	}
 	defer rows.Close()
 
 	var blackList []string
 	for rows.Next() {
 		var msisdn string
-		if err := rows.Scan(&msisdn); err != nil {
-			return err
+		if err = rows.Scan(&msisdn); err != nil {
+			err = fmt.Errorf("rows.Scan: %s", err.Error())
+			return
 		}
 		blackList = append(blackList, msisdn)
 	}
 	if rows.Err() != nil {
-		return fmt.Errorf("RowsError: %s", err.Error())
+		err = fmt.Errorf("rows.Err: %s", err.Error())
+		return
 	}
 
 	bl.Lock()
@@ -157,28 +176,50 @@ type Operator struct {
 	Settings string
 }
 
-func (ops *Operators) Reload() error {
-	query := fmt.Sprintf("select name, rps, settings from %soperators", svc.sConfig.DbConf.TablePrefix)
-	rows, err := dbConn.Query(query)
+func (ops *Operators) Reload() (err error) {
+	log.WithFields(log.Fields{}).Debug("operators reload...")
+	begin := time.Now()
+	defer func(err error) {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		log.WithFields(log.Fields{
+			"error": errStr,
+			"took":  time.Since(begin),
+		}).Debug("operators reload")
+	}(err)
+
+	query := fmt.Sprintf("SELECT "+
+		"name, "+
+		"rps, "+
+		"settings "+
+		"FROM %soperators",
+		svc.sConfig.DbConf.TablePrefix)
+	var rows *sql.Rows
+	rows, err = dbConn.Query(query)
 	if err != nil {
-		return fmt.Errorf("Operators QueryServices: %s, query: %s", err.Error(), query)
+		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+		return
 	}
 	defer rows.Close()
 
 	var operators []Operator
 	for rows.Next() {
 		var op Operator
-		if err := rows.Scan(
+		if err = rows.Scan(
 			&op.Name,
 			&op.Rps,
 			&op.Settings,
 		); err != nil {
-			return err
+			err = fmt.Errorf("rows.Scan: %s", err.Error())
+			return
 		}
 		operators = append(operators, op)
 	}
 	if rows.Err() != nil {
-		return fmt.Errorf("RowsError: %s", err.Error())
+		err = fmt.Errorf("rows.Err: %s", err.Error())
+		return err
 	}
 
 	ops.Lock()

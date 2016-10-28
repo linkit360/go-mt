@@ -19,10 +19,10 @@ config:
 
 
 cqrblacklist:
-	curl http://localhost:50305/cqr?t=blacklist
+	curl -L http://localhost:50305/cqr?t=blacklist
 
 cqrservices:
-	curl http://localhost:50305/cqr?t=services
+	curl -L http://localhost:50305/cqr?t=services
 
 cqroperators:
-	curl http://localhost:50305/cqr?t=operators
+	curl -L http://localhost:50305/cqr?t=operators
