@@ -20,6 +20,9 @@ const ACTIVE_STATUS = 1
 var dbConn *sql.DB
 var conf db.DataBaseConfig
 
+func init() {
+	log.SetLevel(log.DebugLevel)
+}
 func initInMem(dbConf db.DataBaseConfig) error {
 	dbConn = db.Init(dbConf)
 	conf = dbConf
@@ -57,6 +60,19 @@ type Service struct {
 }
 
 func (s *Services) Reload() error {
+	var err error
+	log.WithFields(log.Fields{}).Debug("services reload...")
+	begin := time.Now()
+	defer func() {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		log.WithFields(log.Fields{
+			"error": errStr,
+			"took":  time.Since(begin),
+		}).Debug("services reload")
+	}()
 	query := fmt.Sprintf("select "+
 		"id, "+
 		"price, "+
@@ -69,14 +85,15 @@ func (s *Services) Reload() error {
 		svc.sConfig.DbConf.TablePrefix)
 	rows, err := dbConn.Query(query, ACTIVE_STATUS)
 	if err != nil {
-		return fmt.Errorf("services QueryServices: %s, query: %s", err.Error(), query)
+		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+		return err
 	}
 	defer rows.Close()
 
 	var services []Service
 	for rows.Next() {
 		var srv Service
-		if err := rows.Scan(
+		if err = rows.Scan(
 			&srv.Id,
 			&srv.Price,
 			&srv.PaidHours,
@@ -85,12 +102,14 @@ func (s *Services) Reload() error {
 			&srv.SMSSend,
 			&srv.SMSNotPaidText,
 		); err != nil {
+			err = fmt.Errorf("rows.Scan: %s", err.Error())
 			return err
 		}
 		services = append(services, srv)
 	}
 	if rows.Err() != nil {
-		return fmt.Errorf("RowsError: %s", err.Error())
+		err = fmt.Errorf("rows.Err: %s", err.Error())
+		return err
 	}
 
 	s.Lock()
@@ -113,10 +132,11 @@ type BlackList struct {
 	Map map[string]struct{}
 }
 
-func (bl *BlackList) Reload() (err error) {
+func (bl *BlackList) Reload() error {
+	var err error
 	log.WithFields(log.Fields{}).Debug("blacklist reload...")
 	begin := time.Now()
-	defer func(err error) {
+	defer func() {
 		errStr := ""
 		if err != nil {
 			errStr = err.Error()
@@ -125,14 +145,14 @@ func (bl *BlackList) Reload() (err error) {
 			"error": errStr,
 			"took":  time.Since(begin),
 		}).Debug("blacklist reload")
-	}(err)
+	}()
 
 	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.sConfig.DbConf.TablePrefix)
 	var rows *sql.Rows
 	rows, err = dbConn.Query(query)
 	if err != nil {
 		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
-		return
+		return err
 	}
 	defer rows.Close()
 
@@ -141,13 +161,13 @@ func (bl *BlackList) Reload() (err error) {
 		var msisdn string
 		if err = rows.Scan(&msisdn); err != nil {
 			err = fmt.Errorf("rows.Scan: %s", err.Error())
-			return
+			return err
 		}
 		blackList = append(blackList, msisdn)
 	}
 	if rows.Err() != nil {
 		err = fmt.Errorf("rows.Err: %s", err.Error())
-		return
+		return err
 	}
 
 	bl.Lock()
@@ -176,10 +196,11 @@ type Operator struct {
 	Settings string
 }
 
-func (ops *Operators) Reload() (err error) {
+func (ops *Operators) Reload() error {
+	var err error
 	log.WithFields(log.Fields{}).Debug("operators reload...")
 	begin := time.Now()
-	defer func(err error) {
+	defer func() {
 		errStr := ""
 		if err != nil {
 			errStr = err.Error()
@@ -188,7 +209,7 @@ func (ops *Operators) Reload() (err error) {
 			"error": errStr,
 			"took":  time.Since(begin),
 		}).Debug("operators reload")
-	}(err)
+	}()
 
 	query := fmt.Sprintf("SELECT "+
 		"name, "+
@@ -200,7 +221,7 @@ func (ops *Operators) Reload() (err error) {
 	rows, err = dbConn.Query(query)
 	if err != nil {
 		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
-		return
+		return err
 	}
 	defer rows.Close()
 
@@ -213,7 +234,7 @@ func (ops *Operators) Reload() (err error) {
 			&op.Settings,
 		); err != nil {
 			err = fmt.Errorf("rows.Scan: %s", err.Error())
-			return
+			return err
 		}
 		operators = append(operators, op)
 	}
