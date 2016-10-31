@@ -51,6 +51,7 @@ ALTER TABLE xmp_transactions ADD COLUMN id_campaign INT NOT NULL DEFAULT 0;
 
 CREATE TABLE xmp_retries (
     id serial,
+    tid CHARACTER VARYING(127) NOT NULL DEFAULT '',
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     last_pay_attempt_at TIMESTAMP NOT NULL DEFAULT NOW(),
     attempts_count INT NOT NULL DEFAULT 1,

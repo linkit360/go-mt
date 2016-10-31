@@ -111,7 +111,6 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"id, "+
 		"created_at, "+
 		"last_pay_attempt_at, "+
-		"attempts_count, "+
 		"keep_days, "+
 		"msisdn, "+
 		"operator_code, "+
@@ -356,6 +355,7 @@ func (r Record) StartRetry() error {
 	}
 
 	query := fmt.Sprintf("INSERT INTO  %sretries ("+
+		"tid, "+
 		"keep_days, "+
 		"delay_hours, "+
 		"msisdn, "+
@@ -367,6 +367,7 @@ func (r Record) StartRetry() error {
 		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 		dbConf.TablePrefix)
 	_, err := db.Exec(query,
+		&r.Tid,
 		&r.KeepDays,
 		&r.DelayHours,
 		&r.Msisdn,
