@@ -21,7 +21,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/expvar"
-	"github.com/nu7hatch/gouuid"
 
 	rec "github.com/vostrok/mt/src/service/instance"
 	"os"
@@ -179,15 +178,6 @@ func Belongs(msisdn string) bool {
 	return msisdn[:2] == "92"
 }
 
-func getToken(msisdn string) string {
-	u4, err := uuid.NewV4()
-	if err != nil {
-		log.WithField("error", err.Error()).Error("get uuid")
-		return fmt.Sprintf("%d-%s", time.Now().Unix(), msisdn)
-	}
-	return fmt.Sprintf("%d-%s-%s", time.Now().Unix(), msisdn, u4)
-}
-
 func (mb *Mobilink) Publish(r rec.Record) {
 	log.WithField("rec", r).Debug("publish")
 	mb.mtChannel <- r
@@ -228,7 +218,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		return "", nil
 	}
 
-	token := getToken(msisdn)
+	token := msisdn + time.Now().Format("20060102150405")[6:]
 	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
 
 	log.WithFields(log.Fields{
@@ -240,7 +230,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 
 	requestBody := mb.conf.PostXMLBody
 	requestBody = strings.Replace(requestBody, "%price%", strconv.Itoa(price), 1)
-	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn, 1)
+	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
 	requestBody = strings.Replace(requestBody, "%token%", token, 1)
 	requestBody = strings.Replace(requestBody, "%time%", now, 1)
 

@@ -170,6 +170,7 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  t.Tid,
 			"took": time.Since(begin),
 		}).Debug("get previous subscription")
 	}()
@@ -205,6 +206,7 @@ func (t Record) WriteTransaction() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  t.Tid,
 			"took": time.Since(begin),
 		}).Debug("write transaction")
 	}()
@@ -237,23 +239,24 @@ func (t Record) WriteTransaction() error {
 	)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error ":      err.Error(),
-			"query":       query,
-			"transaction": t,
+			"error ": err.Error(),
+			"query":  query,
+			"tid":    t.Tid,
 		}).Error("record transaction failed")
 		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"transaction": t,
+		"tid": t.Tid,
 	}).Info("write transaction done")
 	return nil
 }
 
-func (subscription Record) WriteSubscriptionStatus() error {
+func (s Record) WriteSubscriptionStatus() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  s.Tid,
 			"took": time.Since(begin),
 		}).Debug("write subscription status")
 	}()
@@ -268,21 +271,21 @@ func (subscription Record) WriteSubscriptionStatus() error {
 
 	lastPayAttemptAt := time.Now()
 	_, err := db.Exec(query,
-		subscription.SubscriptionStatus,
+		s.SubscriptionStatus,
 		lastPayAttemptAt,
-		subscription.SubscriptionId,
+		s.SubscriptionId,
 	)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"error ":       err.Error(),
-			"query":        query,
-			"subscription": subscription,
+			"error ": err.Error(),
+			"query":  query,
+			"tid":    s.Tid,
 		}).Error("notify paid subscription failed")
 		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"subscription": subscription,
+		"tid": s.Tid,
 	}).Info("write subscription done")
 	return nil
 }
@@ -291,6 +294,7 @@ func (r Record) RemoveRetry() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  r.Tid,
 			"took": time.Since(begin),
 		}).Debug("remove retry")
 	}()
@@ -301,14 +305,14 @@ func (r Record) RemoveRetry() error {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
-			"retry":  r}).
-			Error("delete retry failed")
+			"tid":    r.Tid,
+		}).Error("delete retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"retry": r}).
-		Info("retry deleted")
+		"retry": fmt.Sprintf("%#v", r),
+	}).Info("retry deleted")
 	return nil
 }
 
@@ -316,6 +320,7 @@ func (r Record) TouchRetry() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  r.Tid,
 			"took": time.Since(begin),
 		}).Debug("touch retry")
 	}()
@@ -331,13 +336,13 @@ func (r Record) TouchRetry() error {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
-			"retry":  r}).
-			Error("update retry failed")
+			"retry":  fmt.Sprintf("%#v", r),
+		}).Error("update retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"retry": r,
+		"tid": r.Tid,
 	}).Info("retry touch")
 	return nil
 }
@@ -346,6 +351,7 @@ func (r Record) StartRetry() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
+			"tid":  r.Tid,
 			"took": time.Since(begin),
 		}).Debug("add retry")
 	}()
@@ -379,8 +385,15 @@ func (r Record) StartRetry() error {
 		&r.SubscriptionId,
 		&r.CampaignId)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"error ": err.Error(),
+			"query":  query,
+			"retry":  fmt.Sprintf("%#v", r),
+		}).Error("start retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
-
+	log.WithFields(log.Fields{
+		"tid": r.Tid,
+	}).Info("retry start")
 	return nil
 }
