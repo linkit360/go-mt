@@ -174,12 +174,17 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 			"took": time.Since(begin),
 		}).Debug("get previous subscription")
 	}()
+
+	// if the user get's content twice in a second period
+	// then we could handle both of them in sequesnce
+	// then to process, we should get really previous - before this one
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
 		"created_at "+
 		"FROM %ssubscriptions "+
 		"WHERE id != $1 AND "+
-		"( msisdn = $2 AND id_service = $3 )"+
+		" created_at < $2 AND "+
+		" msisdn = $3 AND id_service = $4 "+
 		"ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
 
@@ -189,6 +194,7 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 	var p PreviuosSubscription
 	if err := db.QueryRow(query,
 		t.SubscriptionId,
+		t.CreatedAt,
 		t.Msisdn,
 		t.ServiceId,
 	).Scan(
