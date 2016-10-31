@@ -24,24 +24,32 @@ import (
 	"github.com/nu7hatch/gouuid"
 
 	rec "github.com/vostrok/mt/src/service/instance"
+	"os"
 )
 
 type Mobilink struct {
-	conf      Config
-	rps       int
-	mtChannel chan rec.Record
-	Response  chan rec.Record
-	metrics   Metrics
-	location  *time.Location
-	client    *http.Client
-	smpp      *smpp_client.Transmitter
+	conf        Config
+	rps         int
+	mtChannel   chan rec.Record
+	Response    chan rec.Record
+	metrics     Metrics
+	location    *time.Location
+	client      *http.Client
+	smpp        *smpp_client.Transmitter
+	responseLog *log.Logger
+	requestLog  *log.Logger
 }
 type Config struct {
-	Enabled        bool              `default:"true" yaml:"enabled"`
-	MTChanCapacity int               `default:"1000" yaml:"channel_camacity"`
-	Connection     ConnnectionConfig `yaml:"connection"`
-	Location       string            `default:"Asia/Karachi" yaml:"location"`
-	PostXMLBody    string            `yaml:"mt_body"`
+	Enabled        bool                 `default:"true" yaml:"enabled"`
+	MTChanCapacity int                  `default:"1000" yaml:"channel_camacity"`
+	Connection     ConnnectionConfig    `yaml:"connection"`
+	Location       string               `default:"Asia/Karachi" yaml:"location"`
+	PostXMLBody    string               `yaml:"mt_body"`
+	TransactionLog TransactionLogConfig `yaml:"log_transaction"`
+}
+type TransactionLogConfig struct {
+	ResponseLogPath string `default:"/var/log/response_mobilink.log" yaml:"response"`
+	RequestLogPath  string `default:"/var/log/request_mobilink.log" yaml:"request"`
 }
 
 type ConnnectionConfig struct {
@@ -81,10 +89,41 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 		metrics: initMetrics(),
 	}
 	log.Info("mb metrics init done")
+
+	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"path":  mobilinkConf.TransactionLog.RequestLogPath,
+			"error": err.Error(),
+		}).Fatal("cannot open file")
+	}
+	mb.requestLog = &log.Logger{
+		Out:       requestLogHandler,
+		Formatter: new(log.TextFormatter),
+		Hooks:     make(log.LevelHooks),
+		Level:     log.DebugLevel,
+	}
+	log.Info("request logger init done")
+
+	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"path":  mobilinkConf.TransactionLog.ResponseLogPath,
+			"error": err.Error(),
+		}).Fatal("cannot open file")
+	}
+	mb.responseLog = &log.Logger{
+		Out:       responseLogHandler,
+		Formatter: new(log.TextFormatter),
+		Hooks:     make(log.LevelHooks),
+		Level:     log.DebugLevel,
+	}
+	log.Info("response logger init done")
+
 	mb.mtChannel = make(chan rec.Record, mobilinkConf.MTChanCapacity)
 	mb.Response = make(chan rec.Record, mobilinkConf.MTChanCapacity)
+	log.WithField("capacity", mobilinkConf.MTChanCapacity).Info("channels ini done")
 
-	var err error
 	mb.location, err = time.LoadLocation(mobilinkConf.Location)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -199,13 +238,13 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		"time":   now,
 	}).Debug("prepare to send to mobilink")
 
-	s := mb.conf.PostXMLBody
-	s = strings.Replace(s, "%price%", strconv.Itoa(price), 1)
-	s = strings.Replace(s, "%msisdn%", msisdn, 1)
-	s = strings.Replace(s, "%token%", token, 1)
-	s = strings.Replace(s, "%time%", now, 1)
+	requestBody := mb.conf.PostXMLBody
+	requestBody = strings.Replace(requestBody, "%price%", strconv.Itoa(price), 1)
+	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn, 1)
+	requestBody = strings.Replace(requestBody, "%token%", token, 1)
+	requestBody = strings.Replace(requestBody, "%time%", now, 1)
 
-	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(s))
+	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(requestBody))
 	if err != nil {
 		log.WithFields(log.Fields{
 			"token":  token,
@@ -220,8 +259,54 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	for k, v := range mb.conf.Connection.MT.Headers {
 		req.Header.Set(k, v)
 	}
-	req.Header.Set("Content-Length", strconv.Itoa(len(s)))
+	req.Header.Set("Content-Length", strconv.Itoa(len(requestBody)))
 	req.Close = false
+
+	// transaction log for internal logging
+	var mobilinkResponse []byte
+	begin := time.Now()
+	defer func() {
+		fields := log.Fields{
+			"token":           token,
+			"tid":             tid,
+			"msisdn":          msisdn,
+			"endpoint":        mb.conf.Connection.MT.Url,
+			"headers":         fmt.Sprintf("%#v", req.Header),
+			"reqeustBody":     requestBody,
+			"requestResponse": string(mobilinkResponse),
+			"took":            time.Since(begin),
+		}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Info("mobilink")
+	}()
+
+	// separate transaction for mobilink
+	// 1 - request body
+	mb.requestLog.WithFields(log.Fields{
+		"token":       token,
+		"tid":         tid,
+		"msisdn":      msisdn,
+		"endpoint":    mb.conf.Connection.MT.Url,
+		"headers":     fmt.Sprintf("%#v", req.Header),
+		"reqeustBody": strings.TrimSpace(requestBody),
+	}).Info("mobilink request")
+	defer func() {
+		// separate transaction for mobilink
+		// 2 - response body
+		fields := log.Fields{
+			"token":           token,
+			"tid":             tid,
+			"msisdn":          msisdn,
+			"requestResponse": strings.TrimSpace(string(mobilinkResponse)),
+			"took":            time.Since(begin),
+		}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		mb.responseLog.WithFields(fields).Info("mobilink response")
+	}()
 
 	resp, err := mb.client.Do(req)
 	if err != nil {
@@ -235,8 +320,8 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		err = fmt.Errorf("client.Do: %s", err.Error())
 		return "", err
 	}
-	var html_data []byte
-	html_data, err = ioutil.ReadAll(resp.Body)
+
+	mobilinkResponse, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"token":  token,
@@ -251,7 +336,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	defer resp.Body.Close()
 
 	for _, v := range mb.conf.Connection.MT.OkBodyContains {
-		if strings.Contains(string(html_data), v) {
+		if strings.Contains(string(mobilinkResponse), v) {
 			log.WithFields(log.Fields{
 				"msisdn": msisdn,
 				"token":  token,
@@ -266,7 +351,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		"token":  token,
 		"tid":    tid,
 		"price":  price,
-		"body":   strings.TrimSpace(string(html_data)),
+		"body":   strings.TrimSpace(string(mobilinkResponse)),
 	}).Info("charge has failed")
 	return token, errors.New("Charge has failed")
 }
