@@ -77,7 +77,7 @@ func (s *Services) Reload() error {
 		"id, "+
 		"price, "+
 		"paid_hours, "+
-		"pull_retry_delay, "+
+		"delay_hours, "+
 		"retry_days, "+
 		"sms_send, "+
 		"wording "+

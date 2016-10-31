@@ -5,8 +5,11 @@ ALTER TABLE xmp_operators ADD COLUMN rps INT NOT NULL DEFAULT 0;
 UPDATE xmp_operators SET rps = 10 WHERE "name" = 'Mobilink';
 
 -- service new functionality
-ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 0;
+ALTER TABLE xmp_services ADD COLUMN paid_hours INT NOT NULL DEFAULT 1.0;
 UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
+
+ALTER TABLE xmp_services ADD COLUMN delay_hours INT NOT NULL DEFAULT 10;
+UPDATE xmp_services SET delay_hours = 1 WHERE id = 777;
 
 CREATE TABLE public.xmp_subscriptions (
     id SERIAL,
@@ -23,7 +26,7 @@ CREATE TABLE public.xmp_subscriptions (
     result SUBSCRIPTION_STATUS NOT NULL DEFAULT ''::subscription_status,
     keep_days INTEGER NOT NULL DEFAULT 10,
     last_pay_attempt_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
-    paid_hours INTEGER NOT NULL DEFAULT 0,
+    paid_hours INTEGER NOT NULL DEFAULT 1,
     tid CHARACTER VARYING(127) NOT NULL DEFAULT ''
 );
 CREATE TABLE public.xmp_transactions (
@@ -55,8 +58,8 @@ CREATE TABLE xmp_retries (
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     last_pay_attempt_at TIMESTAMP NOT NULL DEFAULT NOW(),
     attempts_count INT NOT NULL DEFAULT 1,
-    keep_days INT NOT NULL,
-    delay_hours INT NOT NULL,
+    keep_days INT NOT NULL DEFAULT 10,
+    delay_hours INT NOT NULL DEFAULT 24,
     msisdn VARCHAR(32) NOT NULL,
     operator_code INTEGER NOT NULL,
     country_code INTEGER NOT NULL,

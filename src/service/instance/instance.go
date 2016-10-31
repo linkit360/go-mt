@@ -63,7 +63,8 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		"id_service, "+
 		"id_campaign, "+
 		"operator_code, "+
-		"country_code "+
+		"country_code, "+
+		"attempts_count "+
 		" FROM %ssubscriptions "+
 		" WHERE result = '' "+
 		" ORDER BY id DESC LIMIT %s",
@@ -87,6 +88,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 			&record.CampaignId,
 			&record.OperatorCode,
 			&record.CountryCode,
+			&record.AttemptsCount,
 		); err != nil {
 			return subscr, err
 		}
@@ -111,6 +113,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"id, "+
 		"created_at, "+
 		"last_pay_attempt_at, "+
+		"attempts_count, "+
 		"keep_days, "+
 		"msisdn, "+
 		"operator_code, "+
@@ -317,7 +320,7 @@ func (r Record) TouchRetry() error {
 		}).Debug("touch retry")
 	}()
 	query := fmt.Sprintf("UPDATE %sretries SET "+
-		"last_pay_attempt_at = $1 "+
+		"last_pay_attempt_at = $1, "+
 		"attempts_count = attempts_count + 1 "+
 		"WHERE id = $2", dbConf.TablePrefix)
 
