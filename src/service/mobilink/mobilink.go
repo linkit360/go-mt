@@ -90,7 +90,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}
 	log.Info("mb metrics init done")
 
-	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY|os.O_CREATE, 0755)
+	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY, 0755)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"path":  mobilinkConf.TransactionLog.RequestLogPath,
@@ -105,7 +105,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}
 	log.Info("request logger init done")
 
-	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY|os.O_CREATE, 0755)
+	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY, 0755)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"path":  mobilinkConf.TransactionLog.ResponseLogPath,

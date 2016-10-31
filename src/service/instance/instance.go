@@ -95,7 +95,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		subscr = append(subscr, record)
 	}
 	if rows.Err() != nil {
-		return subscr, fmt.Errorf("GetSubscriptions RowsError: %s", err.Error())
+		return subscr, fmt.Errorf("row.Err: %s", err.Error())
 	}
 
 	return subscr, nil
@@ -176,8 +176,7 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 		"created_at "+
 		"FROM %ssubscriptions "+
 		"WHERE id != $1 AND "+
-		"msisdn != $2 AND "+
-		"id_service != $3 "+
+		"( msisdn = $2 AND id_service = $3 )"+
 		"ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
 
@@ -240,7 +239,7 @@ func (t Record) WriteTransaction() error {
 			"query":       query,
 			"transaction": t,
 		}).Error("record transaction failed")
-		return fmt.Errorf("QueryExec: %s", err.Error())
+		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
@@ -277,7 +276,7 @@ func (subscription Record) WriteSubscriptionStatus() error {
 			"query":        query,
 			"subscription": subscription,
 		}).Error("notify paid subscription failed")
-		return fmt.Errorf("QueryExec: %s", err.Error())
+		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
@@ -302,11 +301,10 @@ func (r Record) RemoveRetry() error {
 			"query":  query,
 			"retry":  r}).
 			Error("delete retry failed")
-		return fmt.Errorf("QueryExec: %s", err.Error())
+		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"query": query,
 		"retry": r}).
 		Info("retry deleted")
 	return nil
@@ -333,11 +331,10 @@ func (r Record) TouchRetry() error {
 			"query":  query,
 			"retry":  r}).
 			Error("update retry failed")
-		return fmt.Errorf("QueryExec: %s", err.Error())
+		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 
 	log.WithFields(log.Fields{
-		"query": query,
 		"retry": r,
 	}).Info("retry touch")
 	return nil
@@ -367,7 +364,7 @@ func (r Record) StartRetry() error {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 		dbConf.TablePrefix)
 	_, err := db.Exec(query,
 		&r.Tid,
@@ -380,7 +377,7 @@ func (r Record) StartRetry() error {
 		&r.SubscriptionId,
 		&r.CampaignId)
 	if err != nil {
-		return fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 
 	return nil

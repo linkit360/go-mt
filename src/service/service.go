@@ -112,6 +112,10 @@ func processRetries() {
 		makeAttempt := false
 
 		// new!
+		log.WithFields(log.Fields{
+			"tid":      r.Tid,
+			"keepDays": r.KeepDays,
+		}).Debug("keep days check..")
 		if r.CreatedAt.Sub(now).Hours() > (time.Duration(24*r.KeepDays) * time.Hour).Hours() {
 			log.WithField("subscription", r).Debug("")
 			log.WithFields(log.Fields{
@@ -121,18 +125,36 @@ func processRetries() {
 			}).Debug("must remove, but first, try tarifficate")
 			makeAttempt = true
 		}
-		if r.LastPayAttemptAt.Sub(now).Hours() > (time.Duration(r.DelayHours) * time.Hour).Hours() {
+
+		// check it is time!
+		hoursSinceLastAttempt := now.Sub(r.LastPayAttemptAt).Hours()
+		delay := (time.Duration(r.DelayHours) * time.Hour).Hours()
+		log.WithFields(log.Fields{
+			"tid":              r.Tid,
+			"sinceLastAttempt": hoursSinceLastAttempt,
+			"delay":            delay,
+		}).Debug("delay hours check..")
+		if hoursSinceLastAttempt > delay {
 			log.WithFields(log.Fields{
 				"subscription":     r,
 				"LastPayAttemptAt": r.LastPayAttemptAt.String(),
 				"delayHours":       r.DelayHours,
 			}).Debug("time to tarifficate")
 			makeAttempt = true
+		} else {
+			log.WithFields(log.Fields{
+				"tid": r.Tid,
+			}).Debug("dalay check was not passed")
 		}
+
 		if makeAttempt {
 			go func(rr rec.Record) {
 				handle(rr)
 			}(r)
+		} else {
+			log.WithFields(log.Fields{
+				"tid": r.Tid,
+			}).Debug("won't make attempt")
 		}
 	}
 }
@@ -199,7 +221,7 @@ func smsSend(subscription rec.Record, msg string) error {
 func handle(subscription rec.Record) error {
 	//logCtx := log.WithFields(log.Fields{"subscription": subscription})
 	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
-	logCtx.Debug("start processsing subscription")
+	logCtx.Debug("start processsing")
 
 	mService, ok := memServices.Map[subscription.ServiceId]
 	if !ok {
