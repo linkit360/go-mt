@@ -182,9 +182,8 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 		"id, "+
 		"created_at "+
 		"FROM %ssubscriptions "+
-		"WHERE id != $1 AND "+
-		" created_at < $2 AND "+
-		" msisdn = $3 AND id_service = $4 "+
+		"WHERE id < $1 AND "+
+		" msisdn = $2 AND id_service = $3 "+
 		"ORDER BY created_at DESC LIMIT 1",
 		dbConf.TablePrefix)
 
@@ -194,7 +193,6 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 	var p PreviuosSubscription
 	if err := db.QueryRow(query,
 		t.SubscriptionId,
-		t.CreatedAt,
 		t.Msisdn,
 		t.ServiceId,
 	).Scan(

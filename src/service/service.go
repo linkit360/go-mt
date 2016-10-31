@@ -239,7 +239,7 @@ func handle(subscription rec.Record) error {
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
 	if mService.PaidHours > 0 && subscription.AttemptsCount == 0 {
-		logCtx.Debug("service paid hours > 0")
+		logCtx.WithField("paidHours", mService.PaidHours).Debug("service paid hours > 0")
 		previous, err := subscription.GetPreviousSubscription()
 		if err == sql.ErrNoRows {
 			logCtx.Debug("no previous subscription found")
@@ -249,11 +249,11 @@ func handle(subscription rec.Record) error {
 			return fmt.Errorf("Get previous subscription: %s", err.Error())
 		} else {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
-			delayHours := (time.Duration(subscription.DelayHours) * time.Hour).Hours()
-			if sincePrevious > delayHours {
+			paidHours := (time.Duration(mService.PaidHours) * time.Hour).Hours()
+			if sincePrevious < paidHours {
 				log.WithFields(log.Fields{
 					"sincePrevious": sincePrevious,
-					"delayHours":    delayHours,
+					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
@@ -261,9 +261,13 @@ func handle(subscription rec.Record) error {
 				subscription.WriteTransaction()
 				return nil
 			} else {
+				//time="2016-10-31T15:50:27Z" level=debug
+				// msg="previous subscription time elapsed, proceed"
+				// previous=2016-10-31 15:46:15.79019 +0000 +0000
+				// time=2016-10-31 15:50:27.64595686 +0000 UTC
 				log.WithFields(log.Fields{
-					"time":     time.Now(),
-					"previous": previous.CreatedAt,
+					"sincePrevious": sincePrevious,
+					"paidHours":     paidHours,
 				}).Debug("previous subscription time elapsed, proceed")
 			}
 		}

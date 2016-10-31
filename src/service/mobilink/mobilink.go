@@ -89,7 +89,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}
 	log.Info("mb metrics init done")
 
-	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY, 0755)
+	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY|os.O_CREATE, 0755)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"path":  mobilinkConf.TransactionLog.RequestLogPath,
@@ -104,7 +104,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}
 	log.Info("request logger init done")
 
-	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY, 0755)
+	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY|os.O_CREATE, 0755)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"path":  mobilinkConf.TransactionLog.ResponseLogPath,
@@ -338,10 +338,8 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	}
 	log.WithFields(log.Fields{
 		"msisdn": msisdn,
-		"token":  token,
 		"tid":    tid,
 		"price":  price,
-		"body":   strings.TrimSpace(string(mobilinkResponse)),
 	}).Info("charge has failed")
 	return token, errors.New("Charge has failed")
 }
