@@ -238,7 +238,7 @@ func handle(subscription rec.Record) error {
 
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
-	if mService.PaidHours > 0 {
+	if mService.PaidHours > 0 && subscription.AttemptsCount == 0 {
 		logCtx.Debug("service paid hours > 0")
 		previous, err := subscription.GetPreviousSubscription()
 		if err == sql.ErrNoRows {
@@ -248,11 +248,12 @@ func handle(subscription rec.Record) error {
 			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
 			return fmt.Errorf("Get previous subscription: %s", err.Error())
 		} else {
-			if time.Now().Sub(previous.CreatedAt).Hours() >
-				(time.Duration(subscription.DelayHours) * time.Hour).Hours() {
+			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
+			delayHours := (time.Duration(subscription.DelayHours) * time.Hour).Hours()
+			if sincePrevious > delayHours {
 				log.WithFields(log.Fields{
-					"time":     time.Now(),
-					"previous": previous.CreatedAt,
+					"sincePrevious": sincePrevious,
+					"delayHours":    delayHours,
 				}).Info("paid hours aren't passed")
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"

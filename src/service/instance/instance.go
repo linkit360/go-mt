@@ -111,6 +111,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 	var retries []Record
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
+		"tid, "+
 		"created_at, "+
 		"last_pay_attempt_at, "+
 		"attempts_count, "+
@@ -137,6 +138,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		record := Record{}
 		if err := rows.Scan(
 			&record.RetryId,
+			&record.Tid,
 			&record.CreatedAt,
 			&record.LastPayAttemptAt,
 			&record.AttemptsCount,
@@ -231,7 +233,7 @@ func (t Record) WriteTransaction() error {
 		t.SubscriptionId,
 		t.CampaignId,
 		t.OperatorToken,
-		100*int(t.Price),
+		int(t.Price),
 	)
 	if err != nil {
 		log.WithFields(log.Fields{
