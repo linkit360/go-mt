@@ -178,6 +178,7 @@ service:
         postpaid_body_contains:
           - <value><i4>11</i4></value>
           - <value><i4>27</i4></value>
+          - <value><i4>70</i4></value>
 
       smpp:
         short_number: 4162
