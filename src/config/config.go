@@ -36,6 +36,12 @@ func LoadConfig() AppConfig {
 
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)
 
+	appConfig.Service.Mobilink.TransactionLog.ResponseLogPath =
+		envString("MOBILINK_RESPONSE_LOG", appConfig.Service.Mobilink.TransactionLog.ResponseLogPath)
+
+	appConfig.Service.Mobilink.TransactionLog.RequestLogPath =
+		envString("MOBILINK_REQUEST_LOG", appConfig.Service.Mobilink.TransactionLog.RequestLogPath)
+
 	log.WithField("config", appConfig).Info("Config loaded")
 	return appConfig
 }
