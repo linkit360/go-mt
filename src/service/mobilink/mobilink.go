@@ -89,40 +89,17 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}
 	log.Info("mb metrics init done")
 
-	requestLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.RequestLogPath, os.O_WRONLY|os.O_CREATE, 0755)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"path":  mobilinkConf.TransactionLog.RequestLogPath,
-			"error": err.Error(),
-		}).Fatal("cannot open file")
-	}
-	mb.requestLog = &log.Logger{
-		Out:       requestLogHandler,
-		Formatter: new(log.TextFormatter),
-		Hooks:     make(log.LevelHooks),
-		Level:     log.DebugLevel,
-	}
+	mb.requestLog = getLogger(mobilinkConf.TransactionLog.RequestLogPath)
 	log.Info("request logger init done")
 
-	responseLogHandler, err := os.OpenFile(mobilinkConf.TransactionLog.ResponseLogPath, os.O_WRONLY|os.O_CREATE, 0755)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"path":  mobilinkConf.TransactionLog.ResponseLogPath,
-			"error": err.Error(),
-		}).Fatal("cannot open file")
-	}
-	mb.responseLog = &log.Logger{
-		Out:       responseLogHandler,
-		Formatter: new(log.TextFormatter),
-		Hooks:     make(log.LevelHooks),
-		Level:     log.DebugLevel,
-	}
+	mb.responseLog = getLogger(mobilinkConf.TransactionLog.ResponseLogPath)
 	log.Info("response logger init done")
 
 	mb.mtChannel = make(chan rec.Record, mobilinkConf.MTChanCapacity)
 	mb.Response = make(chan rec.Record, mobilinkConf.MTChanCapacity)
 	log.WithField("capacity", mobilinkConf.MTChanCapacity).Info("channels ini done")
 
+	var err error
 	mb.location, err = time.LoadLocation(mobilinkConf.Location)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -130,12 +107,12 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 			"error":    err,
 		}).Fatal("init location")
 	}
-	log.Debug("location init done")
+	log.Info("location init done")
 
 	mb.client = &http.Client{
 		Timeout: time.Duration(mobilinkConf.Connection.MT.TimeoutSec) * time.Second,
 	}
-	log.Debug("http client init done")
+	log.Info("http client init done")
 
 	mb.smpp = &smpp_client.Transmitter{
 		Addr:        mobilinkConf.Connection.Smpp.Addr,
@@ -144,7 +121,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 		RespTimeout: time.Duration(mobilinkConf.Connection.Smpp.Timeout) * time.Second,
 		SystemType:  "SMPP",
 	}
-	log.Debug("smpp client init done")
+	log.Info("smpp client init done")
 
 	connStatus := mb.smpp.Bind()
 	go func() {
@@ -171,6 +148,21 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	}()
 
 	return mb
+}
+func getLogger(path string) *log.Logger {
+	handler, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"path":  path,
+			"error": err.Error(),
+		}).Fatal("cannot open file")
+	}
+	return &log.Logger{
+		Out:       handler,
+		Formatter: new(log.TextFormatter),
+		Hooks:     make(log.LevelHooks),
+		Level:     log.DebugLevel,
+	}
 }
 
 // prefix from table
