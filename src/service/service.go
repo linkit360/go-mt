@@ -18,6 +18,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/go-kit/kit/metrics"
+	"github.com/go-kit/kit/metrics/expvar"
 
 	"github.com/vostrok/db"
 	rec "github.com/vostrok/mt/src/service/instance"
@@ -30,6 +32,7 @@ func Init(sConf MTServiceConfig) {
 	log.SetLevel(log.DebugLevel)
 
 	svc.sConfig = sConf
+	svc.m = initMetrics()
 	rec.Init(sConf.DbConf)
 
 	if err := initInMem(sConf.DbConf); err != nil {
@@ -44,6 +47,14 @@ func Init(sConf MTServiceConfig) {
 
 	svc.mobilink = mobilink.Init(mobilinkDb.Rps, sConf.Mobilink)
 	log.Info("mt service init ok")
+
+	go func() {
+		for range time.Tick(time.Second) {
+			svc.m.SinceSuccessPaid.Set(svc.m.SinceSuccessPaid.Get() + 1.0)
+			svc.m.MobilinkResponseLen.Set(float64(len(svc.mobilink.Response)))
+			svc.m.MobilinkPendingRequests.Set(float64(svc.mobilink.GetMTChanGap()))
+		}
+	}()
 
 	go func() {
 		for range time.Tick(time.Duration(sConf.SubscriptionsSec) * time.Second) {
@@ -61,11 +72,16 @@ func Init(sConf MTServiceConfig) {
 		for {
 			begin := time.Now()
 			log.Debug("process all responses")
+			svc.m.MobilinkErrorCycleCount.Set(0)
+			responseLen := len(svc.mobilink.Response)
 			for record := range svc.mobilink.Response {
 				go func(r rec.Record) {
 					handleResponse(record)
 				}(record)
 			}
+			rate := svc.m.MobilinkErrorCycleCount.Get() / float64(responseLen)
+			svc.m.MobilinkErrorRate.Set(rate)
+
 			log.WithFields(log.Fields{
 				"took": time.Since(begin),
 			}).Debug("process all responses")
@@ -76,6 +92,7 @@ func Init(sConf MTServiceConfig) {
 type MTService struct {
 	sConfig  MTServiceConfig
 	mobilink *mobilink.Mobilink
+	m        Metrics
 }
 type MTServiceConfig struct {
 	SubscriptionsSec   int               `default:"600" yaml:"subscriptions_period"`
@@ -86,6 +103,27 @@ type MTServiceConfig struct {
 	Mobilink           mobilink.Config   `yaml:"mobilink"`
 }
 
+type Metrics struct {
+	SubscriptionsCount      metrics.Gauge
+	RetryCount              metrics.Gauge
+	SinceSuccessPaid        metrics.Gauge
+	MobilinkResponseLen     metrics.Gauge
+	MobilinkPendingRequests metrics.Gauge
+	MobilinkErrorRate       metrics.Gauge
+	MobilinkErrorCycleCount metrics.Gauge
+}
+
+func initMetrics() Metrics {
+	return Metrics{
+		SubscriptionsCount:      expvar.NewGauge("subscriptions_count"),
+		RetryCount:              expvar.NewGauge("retry_count"),
+		SinceSuccessPaid:        expvar.NewGauge("since_success_paid_sec"),
+		MobilinkResponseLen:     expvar.NewGauge("mobilink_responses_queue"),
+		MobilinkPendingRequests: expvar.NewGauge("mobilink_request_queue"),
+		MobilinkErrorRate:       expvar.NewGauge("mobilink_error_rate"),
+		MobilinkErrorCycleCount: expvar.NewGauge("mobilink_error_cycle_count"),
+	}
+}
 func processRetries() {
 	if buzyCheck() {
 		return
@@ -100,6 +138,7 @@ func processRetries() {
 	log.WithFields(log.Fields{
 		"count": len(retries),
 	}).Info("retries")
+	svc.m.RetryCount.Set(float64(len(retries)))
 
 	begin := time.Now()
 	defer func() {
@@ -191,6 +230,7 @@ func processSubscriptions() {
 		"count": len(records),
 	}).Info("subscriptions")
 
+	svc.m.SubscriptionsCount.Set(float64(len(records)))
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
@@ -229,6 +269,7 @@ func handle(subscription rec.Record) error {
 		return fmt.Errorf("Service id %d not found", subscription.ServiceId)
 	}
 	logCtx.WithField("service", mService).Debug("found service")
+
 	// misconfigured price
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
@@ -301,6 +342,7 @@ func handleResponse(record rec.Record) {
 	logCtx.Info("start processing response")
 
 	if len(record.OperatorToken) > 0 && record.OperatorErr == "" {
+		svc.m.SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"
 		if record.AttemptsCount >= 1 {
 			record.Result = "retry_paid"
@@ -314,7 +356,11 @@ func handleResponse(record rec.Record) {
 		} else {
 			record.Result = "failed"
 		}
+		if mobilink.Belongs(record.Msisdn) {
+			svc.m.MobilinkErrorCycleCount.Set(svc.m.MobilinkErrorCycleCount.Get() + 1)
+		}
 	}
+
 	logCtx.WithFields(log.Fields{
 		"result": record.Result,
 		"status": record.SubscriptionStatus,
@@ -365,12 +411,18 @@ func handleResponse(record rec.Record) {
 
 		logCtx.Info("add to retries")
 		if err := record.StartRetry(); err != nil {
-			logCtx.WithField("error", err.Error()).Error("add to retries failed")
-			return
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+				"retry": fmt.Sprintf("%#v", record),
+			}).Error("add to retries failed")
 		}
 	}
 	// retry
 	if record.AttemptsCount >= 1 {
+		logCtx.WithFields(log.Fields{
+			"attemptsCount": record.AttemptsCount,
+		}).Debug("process retry")
+
 		now := time.Now()
 
 		remove := false

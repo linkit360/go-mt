@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/vostrok/mt/src/config"
-	"github.com/vostrok/mt/src/metrics"
 	"github.com/vostrok/mt/src/newrelic"
 	"github.com/vostrok/mt/src/service"
 	"github.com/vostrok/mt/src/service/mobilink"
@@ -20,7 +19,6 @@ import (
 
 func RunServer() {
 	appConfig := config.LoadConfig()
-	metrics.Init()
 	newrelic.Init(appConfig.NewRelic)
 	service.Init(appConfig.Service)
 

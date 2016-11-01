@@ -249,10 +249,6 @@ func (t Record) WriteTransaction() error {
 		}).Error("record transaction failed")
 		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
-
-	log.WithFields(log.Fields{
-		"tid": t.Tid,
-	}).Info("write transaction done")
 	return nil
 }
 
@@ -287,10 +283,6 @@ func (s Record) WriteSubscriptionStatus() error {
 		}).Error("notify paid subscription failed")
 		return fmt.Errorf("db.Exec: %s, Query: %s", err.Error(), query)
 	}
-
-	log.WithFields(log.Fields{
-		"tid": s.Tid,
-	}).Info("write subscription done")
 	return nil
 }
 
@@ -313,10 +305,6 @@ func (r Record) RemoveRetry() error {
 		}).Error("delete retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
-
-	log.WithFields(log.Fields{
-		"retry": fmt.Sprintf("%#v", r),
-	}).Info("retry deleted")
 	return nil
 }
 
@@ -344,10 +332,6 @@ func (r Record) TouchRetry() error {
 		}).Error("update retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
-
-	log.WithFields(log.Fields{
-		"tid": r.Tid,
-	}).Info("retry touch")
 	return nil
 }
 
@@ -389,15 +373,7 @@ func (r Record) StartRetry() error {
 		&r.SubscriptionId,
 		&r.CampaignId)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error ": err.Error(),
-			"query":  query,
-			"retry":  fmt.Sprintf("%#v", r),
-		}).Error("start retry failed")
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
-	log.WithFields(log.Fields{
-		"tid": r.Tid,
-	}).Info("retry start")
 	return nil
 }

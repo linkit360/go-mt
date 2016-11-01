@@ -150,7 +150,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	return mb
 }
 func getLogger(path string) *log.Logger {
-	handler, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0755)
+	handler, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0755)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"path":  path,
@@ -221,7 +221,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	}).Debug("prepare to send to mobilink")
 
 	requestBody := mb.conf.PostXMLBody
-	requestBody = strings.Replace(requestBody, "%price%", strconv.Itoa(price), 1)
+	requestBody = strings.Replace(requestBody, "%price%", "-"+strconv.Itoa(price), 1)
 	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
 	requestBody = strings.Replace(requestBody, "%token%", token, 1)
 	requestBody = strings.Replace(requestBody, "%time%", now, 1)
@@ -287,7 +287,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		if err != nil {
 			fields["error"] = err.Error()
 		}
-		mb.responseLog.WithFields(fields).Info("mobilink response")
+		mb.responseLog.WithFields(fields).Println("mobilink response")
 	}()
 
 	resp, err := mb.client.Do(req)
