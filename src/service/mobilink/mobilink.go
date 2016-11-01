@@ -43,7 +43,6 @@ type Config struct {
 	MTChanCapacity int                  `default:"1000" yaml:"channel_camacity"`
 	Connection     ConnnectionConfig    `yaml:"connection"`
 	Location       string               `default:"Asia/Karachi" yaml:"location"`
-	PostXMLBody    string               `yaml:"mt_body"`
 	TransactionLog TransactionLogConfig `yaml:"log_transaction"`
 }
 type TransactionLogConfig struct {
@@ -63,10 +62,13 @@ type SmppConfig struct {
 	Timeout     int    `default:"20" yaml:"timeout"`
 }
 type MTConfig struct {
-	Url            string            `default:"http://182.16.255.46:10020/Air" yaml:"url" json:"url"`
-	Headers        map[string]string `yaml:"headers" json:"headers"`
-	TimeoutSec     int               `default:"20" yaml:"timeout" json:"timeout"`
-	OkBodyContains []string          `default:"<value><i4>0</i4></value>" yaml:"ok_body_contains" json:"ok_body_contains"`
+	Url                  string            `default:"http://182.16.255.46:10020/Air" yaml:"url" json:"url"`
+	Headers              map[string]string `yaml:"headers" json:"headers"`
+	TimeoutSec           int               `default:"20" yaml:"timeout" json:"timeout"`
+	TarifficateBody      string            `yaml:"mt_body"`
+	PaidBodyContains     []string          `yaml:"paid_body_contains" json:"paid_body_contains"`
+	CheckBalanceBody     string            `yaml:"check_balance_body"`
+	PostPaidBodyContains []string          `yaml:"postpaid_body_contains" json:"postpaid_body_contains"`
 }
 
 type Metrics struct {
@@ -220,7 +222,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		"time":   now,
 	}).Debug("prepare to send to mobilink")
 
-	requestBody := mb.conf.PostXMLBody
+	requestBody := mb.conf.Connection.MT.TarifficateBody
 	requestBody = strings.Replace(requestBody, "%price%", "-"+strconv.Itoa(price), 1)
 	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
 	requestBody = strings.Replace(requestBody, "%token%", token, 1)
@@ -317,7 +319,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	for _, v := range mb.conf.Connection.MT.OkBodyContains {
+	for _, v := range mb.conf.Connection.MT.PaidBodyContains {
 		if strings.Contains(string(mobilinkResponse), v) {
 			log.WithFields(log.Fields{
 				"msisdn": msisdn,
@@ -370,6 +372,119 @@ func (mb *Mobilink) SMS(tid, msisdn, msg string) error {
 		"respid": shortMsg.RespID(),
 	}).Error("sms sent")
 	return nil
+}
+func getToken(msisdn string) string {
+	return msisdn + time.Now().Format("20060102150405")[6:]
+}
+
+func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
+	if !Belongs(msisdn) {
+		log.WithFields(log.Fields{
+			"msisdn": msisdn,
+			"tid":    tid,
+		}).Debug("is not mobilink")
+		return false, nil
+	}
+
+	token := getToken(msisdn)
+	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
+
+	log.WithFields(log.Fields{
+		"token":    token,
+		"tid":      tid,
+		"msisdn":   msisdn,
+		"time":     now,
+		"operator": "mobilink",
+	}).Debug("prepare to check balance")
+
+	requestBody := mb.conf.Connection.MT.CheckBalanceBody
+	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
+	requestBody = strings.Replace(requestBody, "%token%", token, 1)
+	requestBody = strings.Replace(requestBody, "%time%", now, 1)
+
+	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(requestBody))
+	if err != nil {
+		log.WithFields(log.Fields{
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err.Error(),
+		}).Error("mobilink check balance failed")
+		err = fmt.Errorf("http.NewRequest: %s", err.Error())
+		return false, err
+	}
+	for k, v := range mb.conf.Connection.MT.Headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Content-Length", strconv.Itoa(len(requestBody)))
+	req.Close = false
+
+	var mobilinkResponse []byte
+	begin := time.Now()
+	defer func() {
+		fields := log.Fields{
+			"token":           token,
+			"tid":             tid,
+			"msisdn":          msisdn,
+			"endpoint":        mb.conf.Connection.MT.Url,
+			"headers":         fmt.Sprintf("%#v", req.Header),
+			"reqeustBody":     requestBody,
+			"requestResponse": string(mobilinkResponse),
+			"took":            time.Since(begin),
+		}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Info("mobilink check balance")
+	}()
+
+	resp, err := mb.client.Do(req)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":  err,
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+		}).Error("do request to mobilink")
+		err = fmt.Errorf("client.Do: %s", err.Error())
+		return false, err
+	}
+
+	mobilinkResponse, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"token":  token,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err,
+		}).Error("mobilink check balance get raw body")
+		err = fmt.Errorf("ioutil.ReadAll: %s", err.Error())
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	for _, v := range mb.conf.Connection.MT.PostPaidBodyContains {
+		if strings.Contains(string(mobilinkResponse), v) {
+			log.WithFields(log.Fields{
+				"msisdn":   msisdn,
+				"token":    token,
+				"tid":      tid,
+				"postpaid": true,
+				"text":     v,
+			}).Info("postpaid")
+			return false, nil
+		}
+	}
+	log.WithFields(log.Fields{
+		"msisdn":   msisdn,
+		"token":    token,
+		"tid":      tid,
+		"postpaid": false,
+	}).Info("not postpaid")
+	return false, nil
 }
 
 func MobilinkHandler(c *gin.Context) {

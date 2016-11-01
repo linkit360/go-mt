@@ -197,7 +197,6 @@ func processRetries() {
 		}
 	}
 }
-
 func buzyCheck() bool {
 	log.Info("buzy check")
 	if len(svc.mobilink.Response) > 0 {
@@ -213,7 +212,6 @@ func buzyCheck() bool {
 	}
 	return false
 }
-
 func processSubscriptions() {
 	if buzyCheck() {
 		return
@@ -244,7 +242,6 @@ func processSubscriptions() {
 	}
 	return
 }
-
 func smsSend(subscription rec.Record, msg string) error {
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
@@ -257,7 +254,6 @@ func smsSend(subscription rec.Record, msg string) error {
 	}
 	return nil
 }
-
 func handle(subscription rec.Record) error {
 	//logCtx := log.WithFields(log.Fields{"subscription": subscription})
 	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
@@ -335,7 +331,6 @@ func handle(subscription rec.Record) error {
 	}
 	return nil
 }
-
 func handleResponse(record rec.Record) {
 	//logCtx := log.WithField("subscription", record)
 	logCtx := log.WithFields(log.Fields{})
