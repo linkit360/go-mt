@@ -298,10 +298,6 @@ func handle(subscription rec.Record) error {
 				subscription.WriteTransaction()
 				return nil
 			} else {
-				//time="2016-10-31T15:50:27Z" level=debug
-				// msg="previous subscription time elapsed, proceed"
-				// previous=2016-10-31 15:46:15.79019 +0000 +0000
-				// time=2016-10-31 15:50:27.64595686 +0000 UTC
 				log.WithFields(log.Fields{
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
@@ -312,9 +308,9 @@ func handle(subscription rec.Record) error {
 		logCtx.Debug("service paid hours == 0")
 	}
 
-	logCtx.Debug("check blacklist")
+	logCtx.Debug("blacklist checks..")
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
-		logCtx.Info("blacklisted")
+		logCtx.Info("immemory blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
 		return nil
@@ -327,10 +323,12 @@ func handle(subscription rec.Record) error {
 			return err
 		}
 		if postPaid {
-			logCtx.Info("new blacklist number added")
+			logCtx.Debug("number is blacklisted by operator")
 			if err = subscription.AddBlacklistedNumber(); err != nil {
 				logCtx.WithField("error", err.Error()).Debug("add blacklist error")
+				return err
 			}
+			logCtx.Info("new blacklist number added")
 			memBlackListed.Reload()
 			subscription.SubscriptionStatus = "blacklisted"
 			subscription.WriteSubscriptionStatus()
