@@ -134,6 +134,8 @@ type BlackList struct {
 
 func (bl *BlackList) Reload() error {
 	var err error
+	bl.Lock()
+	defer bl.Unlock()
 	log.WithFields(log.Fields{}).Debug("blacklist reload...")
 	begin := time.Now()
 	defer func() {
@@ -169,9 +171,6 @@ func (bl *BlackList) Reload() error {
 		err = fmt.Errorf("rows.Err: %s", err.Error())
 		return err
 	}
-
-	bl.Lock()
-	defer bl.Unlock()
 
 	bl.Map = make(map[string]struct{}, len(blackList))
 	for _, msisdn := range blackList {

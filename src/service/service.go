@@ -320,6 +320,24 @@ func handle(subscription rec.Record) error {
 		return nil
 	}
 
+	if mobilink.Belongs(subscription.Msisdn) {
+		postPaid, err := svc.mobilink.BalanceCheck(subscription.Tid, subscription.Msisdn)
+		if err != nil {
+			logCtx.WithField("error", err.Error()).Debug("check blacklisted error")
+			return err
+		}
+		if postPaid {
+			logCtx.Info("new blacklist number added")
+			if err = subscription.AddBlacklistedNumber(); err != nil {
+				logCtx.WithField("error", err.Error()).Debug("add blacklist error")
+			}
+			memBlackListed.Reload()
+			subscription.SubscriptionStatus = "blacklisted"
+			subscription.WriteSubscriptionStatus()
+			return nil
+		}
+	}
+
 	logCtx.Debug("send to operator")
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
