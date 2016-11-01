@@ -1,10 +1,15 @@
 .PHONY: dev run release
 
 dev:
-	rm ./mt; go build ; ./mt;
+	rm ./mt; go build ; \
+	export MOBILINK_RESPONSE_LOG=response.log; \
+	export MOBILINK_REQUEST_LOG=response.log; \
+	./mt;
 
 run:
-	./mt
+	export MOBILINK_RESPONSE_LOG=response.log; \
+  export MOBILINK_REQUEST_LOG=response.log; \
+  ./mt
 
 release:
 	export GOOS=linux; export GOARCH=amd64; \
@@ -17,12 +22,14 @@ send:
 config:
 		scp -i ~/.ssh/mobilink_centos.pem dev/appconfig.yml centos@52.66.23.201:/home/centos/go/src/github.com/vostrok/mt/dev/
 
+metrics:
+	curl http://localhost:50305/debug/vars
 
 cqrblacklist:
-	curl -L http://localhost:50305/cqr?t=blacklist
+	curl http://localhost:50305/cqr?t=blacklist
 
 cqrservices:
-	curl -L http://localhost:50305/cqr?t=services
+	curl http://localhost:50305/cqr?t=services
 
 cqroperators:
-	curl -L http://localhost:50305/cqr?t=operators
+	curl http://localhost:50305/cqr?t=operators
