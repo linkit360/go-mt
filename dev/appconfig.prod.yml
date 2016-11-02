@@ -1,190 +1,196 @@
 server:
   port: 50305
 
-newrelic:
-  appname: mumbai.mt.linkit360.com
-  license: 4d635427ad90ca786ca2db6aa246ed651730b933
-
 service:
   subscriptions_period: 10
   subscriptions_count: 500
   retry_period: 10
   retry_count: 500
-
-  db:
-    conn_ttl: -1
-    max_conns: 15
-    timeout: 30
-    name: linkit_mobilink
-    user: linkit_mobilink
-    pass: A0kZN8pUAs63wePezz
-    port: 5432
-    host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
-    ssl_mode: disable
-    table_prefix: xmp_
-
   tables:
   - subscriptions
 
-  mobilink:
-    enabled: true
-    log_transaction:
-      response: /var/log/linkit/response_mobilink.log
-      request: /var/log/linkit/request_mobilink.log
-    location: Asia/Karachi
-    connection:
-      mt:
-        url: http://182.16.255.46:10020/Air
+db:
+  conn_ttl: -1
+  max_conns: 15
+  timeout: 30
+  name: linkit_mobilink
+  user: linkit_mobilink
+  pass: A0kZN8pUAs63wePezz
+  port: 5432
+  host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
+  ssl_mode: disable
+  table_prefix: xmp_
+
+
+notifier:
+  queue:
+    pixels: pixels
+  rbmq:
+    conn:
+      user: linkit
+      pass: dg-U_oHhy7-
+      host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
+      port: 5672
+    chan_capacity: 10000000
+
+
+mobilink:
+  enabled: true
+  log_transaction:
+    response: /var/log/linkit/response_mobilink.log
+    request: /var/log/linkit/request_mobilink.log
+  location: Asia/Karachi
+  connection:
+    mt:
+      url: http://182.16.255.46:10020/Air
 #        url: http://localhost:50305/mobilink_handler
-        headers:
-          Content-Type: text/xml
-          Authorization: Basic SU5UTE5LVVI6TGluayMwMTAx
-          User-Agent: MEGASTORE_RPC/4.1/1.0
-          Cache-Control: no-cache
-          Pragma: no-cache
-          Host: 182.16.255.46:10020
-          Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
+      headers:
+        Content-Type: text/xml
+        Authorization: Basic SU5UTE5LVVI6TGluayMwMTAx
+        User-Agent: MEGASTORE_RPC/4.1/1.0
+        Cache-Control: no-cache
+        Pragma: no-cache
+        Host: 182.16.255.46:10020
+        Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
 
-        timeout: 20
-        mt_body: |
-          <?xml version="1.0" encoding="UTF-8"?>
-          <methodCall>
-          <methodName>UpdateBalanceAndDate</methodName>
-          <params>
-            <param>
-              <value>
-                <struct>
-                  <member>
-                    <name>originNodeType</name>
-                    <value>
-                      <string>EXT</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originHostName</name>
-                    <value>
-                      <string>megastore</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originTransactionID</name>
-                    <value>
-                      <string>%token%</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originTimeStamp</name>
-                    <value>
-                      <dateTime.iso8601>%time%</dateTime.iso8601>
-                    </value>
-                  </member>
-                  <member>
-                    <name>subscriberNumber</name>
-                    <value>
-                      <string>%msisdn%</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>transactionCurrency</name>
-                    <value>
-                      <string>PKR</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>adjustmentAmountRelative</name>
-                    <value>
-                      <string>%price%</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>externalData2</name>
-                    <value>
-                      <string>megastore_VAS</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>externalData1</name>
-                    <value>
-                      <string>megastore_VAS</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>refillProfileID</name>
-                    <value>
-                      <string>NA</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>transactionType</name>
-                    <value>
-                      <string>megastore</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>transactionCode</name>
-                    <value>
-                      <string>megastore</string>
-                    </value>
-                  </member>
-                </struct>
-              </value>
-            </param>
-          </params>
-          </methodCall>
-        paid_body_contains:
-          - <value><i4>0</i4></value>
-
-        check_balance_body:
-              <?xml version="1.0"?>
-              <methodCall>
-                <methodName>GetBalanceAndDate</methodName>
-                <params>
-                  <param>
+      timeout: 20
+      mt_body: |
+        <?xml version="1.0" encoding="UTF-8"?>
+        <methodCall>
+        <methodName>UpdateBalanceAndDate</methodName>
+        <params>
+          <param>
+            <value>
+              <struct>
+                <member>
+                  <name>originNodeType</name>
                   <value>
-                  <struct>
-                  <member>
-                    <name>originTransactionID</name>
-                    <value>
-                      <string>%token%</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originNodeType</name>
-                    <value>
-                      <string>EXT</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originHostName</name>
-                    <value>
-                      <string>megastore</string>
-                    </value>
-                  </member>
-                  <member>
-                    <name>originTimeStamp</name>
-                    <value> <dateTime.iso8601>%time%</dateTime.iso8601> </value>
-                  </member>
-                  <member>
-                    <name>subscriberNumber</name>
-                    <value>
-                      <string>%msisdn%</string>
-                    </value>
-                  </member>
-                  </struct>
+                    <string>EXT</string>
                   </value>
-                  </param>
-                </params>
-              </methodCall>
-        postpaid_body_contains:
-          - <value><i4>11</i4></value>
-          - <value><i4>27</i4></value>
-          - <value><i4>70</i4></value>
+                </member>
+                <member>
+                  <name>originHostName</name>
+                  <value>
+                    <string>megastore</string>
+                  </value>
+                </member>
+                <member>
+                  <name>originTransactionID</name>
+                  <value>
+                    <string>%token%</string>
+                  </value>
+                </member>
+                <member>
+                  <name>originTimeStamp</name>
+                  <value>
+                    <dateTime.iso8601>%time%</dateTime.iso8601>
+                  </value>
+                </member>
+                <member>
+                  <name>subscriberNumber</name>
+                  <value>
+                    <string>%msisdn%</string>
+                  </value>
+                </member>
+                <member>
+                  <name>transactionCurrency</name>
+                  <value>
+                    <string>PKR</string>
+                  </value>
+                </member>
+                <member>
+                  <name>adjustmentAmountRelative</name>
+                  <value>
+                    <string>%price%</string>
+                  </value>
+                </member>
+                <member>
+                  <name>externalData2</name>
+                  <value>
+                    <string>megastore_VAS</string>
+                  </value>
+                </member>
+                <member>
+                  <name>externalData1</name>
+                  <value>
+                    <string>megastore_VAS</string>
+                  </value>
+                </member>
+                <member>
+                  <name>refillProfileID</name>
+                  <value>
+                    <string>NA</string>
+                  </value>
+                </member>
+                <member>
+                  <name>transactionType</name>
+                  <value>
+                    <string>megastore</string>
+                  </value>
+                </member>
+                <member>
+                  <name>transactionCode</name>
+                  <value>
+                    <string>megastore</string>
+                  </value>
+                </member>
+              </struct>
+            </value>
+          </param>
+        </params>
+        </methodCall>
+      paid_body_contains:
+        - <value><i4>0</i4></value>
 
-      smpp:
-        short_number: 4162
-        endpoint: 182.16.255.46:15019
-        user: SLYEPPLA
-        pass: SLYPEE_1
-        timeout: 30
+      check_balance_body:
+            <?xml version="1.0"?>
+            <methodCall>
+              <methodName>GetBalanceAndDate</methodName>
+              <params>
+                <param>
+                <value>
+                <struct>
+                <member>
+                  <name>originTransactionID</name>
+                  <value>
+                    <string>%token%</string>
+                  </value>
+                </member>
+                <member>
+                  <name>originNodeType</name>
+                  <value>
+                    <string>EXT</string>
+                  </value>
+                </member>
+                <member>
+                  <name>originHostName</name>
+                  <value>
+                    <string>megastore</string>
+                  </value>
+                </member>
+                <member>
+                  <name>originTimeStamp</name>
+                  <value> <dateTime.iso8601>%time%</dateTime.iso8601> </value>
+                </member>
+                <member>
+                  <name>subscriberNumber</name>
+                  <value>
+                    <string>%msisdn%</string>
+                  </value>
+                </member>
+                </struct>
+                </value>
+                </param>
+              </params>
+            </methodCall>
+      postpaid_body_contains:
+        - <value><i4>11</i4></value>
+        - <value><i4>27</i4></value>
+        - <value><i4>70</i4></value>
 
-
+    smpp:
+      short_number: 4162
+      endpoint: 182.16.255.46:15019
+      user: SLYEPPLA
+      pass: SLYPEE_1
+      timeout: 30

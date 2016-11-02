@@ -7,20 +7,21 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
+	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
+	"github.com/vostrok/mt_manager/src/service/mobilink"
+	"github.com/vostrok/mt_manager/src/service/notifier"
 )
 
 type ServerConfig struct {
 	Port string `default:"50304"`
 }
-type NewRelicConfig struct {
-	AppName string `default:"dev.mt.linkit360.com"`
-	License string `default:"4d635427ad90ca786ca2db6aa246ed651730b933"`
-}
 type AppConfig struct {
 	Server   ServerConfig            `yaml:"server"`
-	NewRelic NewRelicConfig          `yaml:"newrelic"`
 	Service  service.MTServiceConfig `yaml:"service"`
+	DbConf   db.DataBaseConfig       `yaml:"db"`
+	Notifier notifier.NotifierConfig `yaml:"notifier"`
+	Mobilink mobilink.Config         `yaml:"mobilink"`
 }
 
 func LoadConfig() AppConfig {
@@ -35,12 +36,12 @@ func LoadConfig() AppConfig {
 	}
 
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)
+	appConfig.Notifier.Rbmq.Conn.Host = envString("RBMQ_HOST", appConfig.Notifier.Rbmq.Conn.Host)
 
-	appConfig.Service.Mobilink.TransactionLog.ResponseLogPath =
-		envString("MOBILINK_RESPONSE_LOG", appConfig.Service.Mobilink.TransactionLog.ResponseLogPath)
-
-	appConfig.Service.Mobilink.TransactionLog.RequestLogPath =
-		envString("MOBILINK_REQUEST_LOG", appConfig.Service.Mobilink.TransactionLog.RequestLogPath)
+	appConfig.Mobilink.TransactionLog.ResponseLogPath =
+		envString("MOBILINK_RESPONSE_LOG", appConfig.Mobilink.TransactionLog.ResponseLogPath)
+	appConfig.Mobilink.TransactionLog.RequestLogPath =
+		envString("MOBILINK_REQUEST_LOG", appConfig.Mobilink.TransactionLog.RequestLogPath)
 
 	log.WithField("config", appConfig).Info("Config loaded")
 	return appConfig

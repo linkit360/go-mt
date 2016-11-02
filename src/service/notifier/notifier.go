@@ -16,7 +16,7 @@ type Notifier interface {
 
 type NotifierConfig struct {
 	Queue queues            `yaml:"queue"`
-	Rbmq  rabbit.RBMQConfig `yaml:"rabbit"`
+	Rbmq  rabbit.RBMQConfig `yaml:"rbmq"`
 }
 type queues struct {
 	PixelsQueue string `default:"pixels" yaml:"pixels"`
@@ -39,12 +39,7 @@ func init() {
 func NewNotifierService(conf NotifierConfig) Notifier {
 	var n Notifier
 	{
-		rabbit := rabbit.NewPublisher(rabbit.RBMQConfig{
-			Url:     conf.Rbmq.Url,
-			ChanCap: conf.Rbmq.ChanCap,
-			Metrics: rabbit.InitMetrics("mt_manager"),
-		})
-
+		rabbit := rabbit.NewPublisher(conf.Rbmq, rabbit.InitMetrics("mt_manager"))
 		n = &notifier{
 			q: queues{
 				PixelsQueue: conf.Queue.PixelsQueue,

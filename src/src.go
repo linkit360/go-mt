@@ -12,15 +12,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/vostrok/mt_manager/src/config"
-	"github.com/vostrok/mt_manager/src/newrelic"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
 )
 
 func RunServer() {
 	appConfig := config.LoadConfig()
-	newrelic.Init(appConfig.NewRelic)
-	service.Init(appConfig.Service)
+	service.Init(
+		appConfig.Service,
+		appConfig.DbConf,
+		appConfig.Notifier,
+		appConfig.Mobilink,
+	)
 
 	nuCPU := runtime.NumCPU()
 	runtime.GOMAXPROCS(nuCPU)

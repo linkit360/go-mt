@@ -30,16 +30,21 @@ import (
 
 var svc MTService
 
-func Init(sConf MTServiceConfig) {
+func Init(
+	sConf MTServiceConfig,
+	dbConf db.DataBaseConfig,
+	notifConf notifier.NotifierConfig,
+	mobConf mobilink.Config,
+) {
 	log.SetLevel(log.DebugLevel)
 
 	svc.sConfig = sConf
 	svc.m = initMetrics()
-	rec.Init(sConf.DbConf)
+	rec.Init(dbConf)
 
-	svc.n = notifier.NewNotifierService(sConf.Notifier)
+	svc.n = notifier.NewNotifierService(notifConf)
 
-	if err := initInMem(sConf.DbConf); err != nil {
+	if err := initInMem(dbConf); err != nil {
 		log.WithField("error", err.Error()).Fatal("init in memory tables")
 	}
 	log.Info("inmemory tables init ok")
@@ -49,7 +54,7 @@ func Init(sConf MTServiceConfig) {
 		log.WithField("error", "no db record for mobilink").Fatal("get mobilink from db")
 	}
 
-	svc.mobilink = mobilink.Init(mobilinkDb.Rps, sConf.Mobilink)
+	svc.mobilink = mobilink.Init(mobilinkDb.Rps, mobConf)
 	log.Info("mt service init ok")
 
 	go func() {
@@ -95,13 +100,10 @@ type MTService struct {
 	n        notifier.Notifier
 }
 type MTServiceConfig struct {
-	SubscriptionsSec   int                     `default:"600" yaml:"subscriptions_period"`
-	SubscriptionsCount int                     `default:"600" yaml:"subscriptions_count"`
-	RetrySec           int                     `default:"600" yaml:"retry_period"`
-	RetryCount         int                     `default:"600" yaml:"retry_count"`
-	DbConf             db.DataBaseConfig       `yaml:"db"`
-	Mobilink           mobilink.Config         `yaml:"mobilink"`
-	Notifier           notifier.NotifierConfig `yaml:"notifier"`
+	SubscriptionsSec   int `default:"600" yaml:"subscriptions_period"`
+	SubscriptionsCount int `default:"600" yaml:"subscriptions_count"`
+	RetrySec           int `default:"600" yaml:"retry_period"`
+	RetryCount         int `default:"600" yaml:"retry_count"`
 }
 
 type Metrics struct {
