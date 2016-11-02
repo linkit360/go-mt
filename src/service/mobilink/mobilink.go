@@ -31,7 +31,7 @@ type Mobilink struct {
 	rps         int
 	mtChannel   chan rec.Record
 	Response    chan rec.Record
-	metrics     Metrics
+	M           Metrics
 	location    *time.Location
 	client      *http.Client
 	smpp        *smpp_client.Transmitter
@@ -72,12 +72,27 @@ type MTConfig struct {
 }
 
 type Metrics struct {
-	SMPPConnected metrics.Gauge
+	SMPPConnected   metrics.Gauge
+	ResponseLen     metrics.Gauge
+	PendingRequests metrics.Gauge
+	//ErrorCount           metrics.Gauge
+	//ErrorRate            metrics.Gauge
+	BalanceCheckDuration metrics.TimeHistogram
+	TarifficateDuration  metrics.TimeHistogram
 }
 
 func initMetrics() Metrics {
+	var quantiles = []int{50, 90, 95, 99}
 	return Metrics{
-		SMPPConnected: expvar.NewGauge("smpp_connected"),
+		SMPPConnected:   expvar.NewGauge("mobilink_smpp_connected"),
+		ResponseLen:     expvar.NewGauge("mobilink_responses_queue"),
+		PendingRequests: expvar.NewGauge("mobilink_request_queue"),
+		//ErrorRate:       expvar.NewGauge("mobilink_error_rate"),
+		//ErrorCount:      expvar.NewGauge("mobilink_error_count"),
+		BalanceCheckDuration: metrics.NewTimeHistogram(time.Millisecond,
+			expvar.NewHistogram("duration_ms_charge", 0, 10000, 3, quantiles...)),
+		TarifficateDuration: metrics.NewTimeHistogram(time.Millisecond,
+			expvar.NewHistogram("duration_ms_tarifficate", 0, 10000, 3, quantiles...)),
 	}
 }
 
@@ -85,9 +100,9 @@ func initMetrics() Metrics {
 
 func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	mb := &Mobilink{
-		rps:     mobilinkRps,
-		conf:    mobilinkConf,
-		metrics: initMetrics(),
+		rps:  mobilinkRps,
+		conf: mobilinkConf,
+		M:    initMetrics(),
 	}
 	log.Info("mb metrics init done")
 
@@ -129,7 +144,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 	go func() {
 		for c := range connStatus {
 			if c.Status().String() != "Connected" {
-				mb.metrics.SMPPConnected.Set(0)
+				mb.M.SMPPConnected.Set(0)
 				log.WithFields(log.Fields{
 					"operator": "mobilink",
 					"status":   c.Status().String(),
@@ -140,7 +155,7 @@ func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
 					"operator": "mobilink",
 					"status":   c.Status().String(),
 				}).Info("smpp moblink connect status")
-				mb.metrics.SMPPConnected.Set(1)
+				mb.M.SMPPConnected.Set(1)
 			}
 		}
 	}()
@@ -262,8 +277,10 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		}
 		if err != nil {
 			fields["error"] = err.Error()
+			//mb.M.ErrorCount.Add(1)
 		}
 		log.WithFields(fields).Info("mobilink")
+		mb.M.TarifficateDuration.Observe(time.Since(begin))
 	}()
 
 	// separate transaction for mobilink
@@ -419,6 +436,7 @@ func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
 			fields["error"] = err.Error()
 		}
 		log.WithFields(fields).Info("mobilink check balance")
+		mb.M.BalanceCheckDuration.Observe(time.Since(begin))
 	}()
 
 	resp, err := mb.client.Do(req)

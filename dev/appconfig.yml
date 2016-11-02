@@ -29,8 +29,8 @@ service:
   mobilink:
     enabled: true
     log_transaction:
-      response: /var/log/response_mobilink.log
-      request: /var/log/request_mobilink.log
+      response: /var/log/linkit/response_mobilink.log
+      request: /var/log/linkit/request_mobilink.log
     location: Asia/Karachi
     connection:
       mt:

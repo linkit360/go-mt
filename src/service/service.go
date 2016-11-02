@@ -51,8 +51,8 @@ func Init(sConf MTServiceConfig) {
 	go func() {
 		for range time.Tick(time.Second) {
 			svc.m.SinceSuccessPaid.Set(svc.m.SinceSuccessPaid.Get() + 1.0)
-			svc.m.MobilinkResponseLen.Set(float64(len(svc.mobilink.Response)))
-			svc.m.MobilinkPendingRequests.Set(float64(svc.mobilink.GetMTChanGap()))
+			svc.mobilink.M.ResponseLen.Set(float64(len(svc.mobilink.Response)))
+			svc.mobilink.M.PendingRequests.Set(float64(svc.mobilink.GetMTChanGap()))
 		}
 	}()
 
@@ -72,16 +72,11 @@ func Init(sConf MTServiceConfig) {
 		for {
 			begin := time.Now()
 			log.Debug("process all responses")
-			svc.m.MobilinkErrorCycleCount.Set(0)
-			responseLen := len(svc.mobilink.Response)
 			for record := range svc.mobilink.Response {
 				go func(r rec.Record) {
 					handleResponse(record)
 				}(record)
 			}
-			rate := svc.m.MobilinkErrorCycleCount.Get() / float64(responseLen)
-			svc.m.MobilinkErrorRate.Set(rate)
-
 			log.WithFields(log.Fields{
 				"took": time.Since(begin),
 			}).Debug("process all responses")
@@ -104,24 +99,16 @@ type MTServiceConfig struct {
 }
 
 type Metrics struct {
-	SubscriptionsCount      metrics.Gauge
-	RetryCount              metrics.Gauge
-	SinceSuccessPaid        metrics.Gauge
-	MobilinkResponseLen     metrics.Gauge
-	MobilinkPendingRequests metrics.Gauge
-	MobilinkErrorRate       metrics.Gauge
-	MobilinkErrorCycleCount metrics.Gauge
+	SubscriptionsCount metrics.Gauge
+	RetryCount         metrics.Gauge
+	SinceSuccessPaid   metrics.Gauge
 }
 
 func initMetrics() Metrics {
 	return Metrics{
-		SubscriptionsCount:      expvar.NewGauge("subscriptions_count"),
-		RetryCount:              expvar.NewGauge("retry_count"),
-		SinceSuccessPaid:        expvar.NewGauge("since_success_paid_sec"),
-		MobilinkResponseLen:     expvar.NewGauge("mobilink_responses_queue"),
-		MobilinkPendingRequests: expvar.NewGauge("mobilink_request_queue"),
-		MobilinkErrorRate:       expvar.NewGauge("mobilink_error_rate"),
-		MobilinkErrorCycleCount: expvar.NewGauge("mobilink_error_cycle_count"),
+		SubscriptionsCount: expvar.NewGauge("subscriptions_count"),
+		RetryCount:         expvar.NewGauge("retry_count"),
+		SinceSuccessPaid:   expvar.NewGauge("since_success_paid_sec"),
 	}
 }
 func processRetries() {
@@ -317,11 +304,16 @@ func handle(subscription rec.Record) error {
 	}
 
 	if mobilink.Belongs(subscription.Msisdn) {
+		begin := time.Now()
 		postPaid, err := svc.mobilink.BalanceCheck(subscription.Tid, subscription.Msisdn)
 		if err != nil {
-			logCtx.WithField("error", err.Error()).Debug("check blacklisted error")
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+				"took":  time.Since(begin),
+			}).Debug("check blacklisted error")
 			return err
 		}
+
 		if postPaid {
 			logCtx.Debug("number is blacklisted by operator")
 			if err = subscription.AddBlacklistedNumber(); err != nil {
@@ -366,9 +358,6 @@ func handleResponse(record rec.Record) {
 			record.Result = "retry_failed"
 		} else {
 			record.Result = "failed"
-		}
-		if mobilink.Belongs(record.Msisdn) {
-			svc.m.MobilinkErrorCycleCount.Set(svc.m.MobilinkErrorCycleCount.Get() + 1)
 		}
 	}
 

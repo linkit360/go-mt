@@ -16,6 +16,7 @@ release:
   go build -ldflags "-s -w" -o bin/mt-linux-amd64
 
 send:
+		ssh -i ~/.ssh/mobilink_centos.pem centos@52.66.23.201 rm /home/centos/go/src/github.com/vostrok/mt/bin/mt-linux-amd64
 		scp -i ~/.ssh/mobilink_centos.pem bin/mt-linux-amd64 centos@52.66.23.201:/home/centos/go/src/github.com/vostrok/mt/bin/mt-linux-amd64
 		scp -i ~/.ssh/mobilink_centos.pem dev/appconfig.yml centos@52.66.23.201:/home/centos/go/src/github.com/vostrok/mt/dev/
 
