@@ -22,7 +22,7 @@ import (
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/expvar"
 
-	rec "github.com/vostrok/mt/src/service/instance"
+	rec "github.com/vostrok/mt_manager/src/service/instance"
 	"os"
 )
 

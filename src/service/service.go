@@ -22,8 +22,10 @@ import (
 	"github.com/go-kit/kit/metrics/expvar"
 
 	"github.com/vostrok/db"
-	rec "github.com/vostrok/mt/src/service/instance"
-	"github.com/vostrok/mt/src/service/mobilink"
+	rec "github.com/vostrok/mt_manager/src/service/instance"
+	"github.com/vostrok/mt_manager/src/service/mobilink"
+	"github.com/vostrok/mt_manager/src/service/notifier"
+	"github.com/vostrok/pixels/src/service"
 )
 
 var svc MTService
@@ -34,6 +36,8 @@ func Init(sConf MTServiceConfig) {
 	svc.sConfig = sConf
 	svc.m = initMetrics()
 	rec.Init(sConf.DbConf)
+
+	svc.n = notifier.NewNotifierService(sConf.Notifier)
 
 	if err := initInMem(sConf.DbConf); err != nil {
 		log.WithField("error", err.Error()).Fatal("init in memory tables")
@@ -88,14 +92,16 @@ type MTService struct {
 	sConfig  MTServiceConfig
 	mobilink *mobilink.Mobilink
 	m        Metrics
+	n        notifier.Notifier
 }
 type MTServiceConfig struct {
-	SubscriptionsSec   int               `default:"600" yaml:"subscriptions_period"`
-	SubscriptionsCount int               `default:"600" yaml:"subscriptions_count"`
-	RetrySec           int               `default:"600" yaml:"retry_period"`
-	RetryCount         int               `default:"600" yaml:"retry_count"`
-	DbConf             db.DataBaseConfig `yaml:"db"`
-	Mobilink           mobilink.Config   `yaml:"mobilink"`
+	SubscriptionsSec   int                     `default:"600" yaml:"subscriptions_period"`
+	SubscriptionsCount int                     `default:"600" yaml:"subscriptions_count"`
+	RetrySec           int                     `default:"600" yaml:"retry_period"`
+	RetryCount         int                     `default:"600" yaml:"retry_count"`
+	DbConf             db.DataBaseConfig       `yaml:"db"`
+	Mobilink           mobilink.Config         `yaml:"mobilink"`
+	Notifier           notifier.NotifierConfig `yaml:"notifier"`
 }
 
 type Metrics struct {
@@ -352,6 +358,12 @@ func handleResponse(record rec.Record) {
 		} else {
 			record.Result = "paid"
 		}
+		svc.n.PaidNotify(service.Pixel{
+			Tid:            record.Tid,
+			Pixel:          record.Pixel,
+			SubscriptionId: record.SubscriptionId,
+			Msisdn:         record.Msisdn,
+		})
 	} else {
 		record.SubscriptionStatus = "failed"
 		if record.AttemptsCount >= 1 {

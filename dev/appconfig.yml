@@ -26,6 +26,14 @@ service:
   tables:
   - subscriptions
 
+  notifier:
+    queue:
+      pixels: pixels
+    rabbit:
+      url: amqp://linkit:dg-U_oHhy7-@52.66.23.201:5672
+      chan_gap: 1000000
+
+
   mobilink:
     enabled: true
     log_transaction:

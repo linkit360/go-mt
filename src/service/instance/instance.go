@@ -35,6 +35,7 @@ type Record struct {
 	OperatorToken      string    `json:",omitempty"`
 	OperatorErr        string    `json:",omitempty"`
 	Price              int       `json:",omitempty"`
+	Pixel              string    `json:",omitempty"`
 }
 
 var db *sql.DB
@@ -60,6 +61,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		"id, "+
 		"tid, "+
 		"msisdn, "+
+		"pixel, "+
 		"id_service, "+
 		"id_campaign, "+
 		"operator_code, "+
@@ -84,6 +86,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 			&record.SubscriptionId,
 			&record.Tid,
 			&record.Msisdn,
+			&record.Pixel,
 			&record.ServiceId,
 			&record.CampaignId,
 			&record.OperatorCode,
@@ -117,6 +120,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"attempts_count, "+
 		"keep_days, "+
 		"msisdn, "+
+		"pixel, "+
 		"operator_code, "+
 		"country_code, "+
 		"id_service, "+
@@ -144,6 +148,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 			&record.AttemptsCount,
 			&record.KeepDays,
 			&record.Msisdn,
+			&record.Pixel,
 			&record.OperatorCode,
 			&record.CountryCode,
 			&record.ServiceId,

@@ -11,10 +11,10 @@ import (
 	"github.com/gin-gonic/contrib/expvar"
 	"github.com/gin-gonic/gin"
 
-	"github.com/vostrok/mt/src/config"
-	"github.com/vostrok/mt/src/newrelic"
-	"github.com/vostrok/mt/src/service"
-	"github.com/vostrok/mt/src/service/mobilink"
+	"github.com/vostrok/mt_manager/src/config"
+	"github.com/vostrok/mt_manager/src/newrelic"
+	"github.com/vostrok/mt_manager/src/service"
+	"github.com/vostrok/mt_manager/src/service/mobilink"
 )
 
 func RunServer() {

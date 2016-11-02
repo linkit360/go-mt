@@ -7,7 +7,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
-	"github.com/vostrok/mt/src/service"
+	"github.com/vostrok/mt_manager/src/service"
 )
 
 type ServerConfig struct {

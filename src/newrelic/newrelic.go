@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	newrelic "github.com/newrelic/go-agent"
 
-	"github.com/vostrok/mt/src/config"
+	"github.com/vostrok/mt_manager/src/config"
 )
 
 var (
