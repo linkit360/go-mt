@@ -365,6 +365,8 @@ func (r Record) StartRetry() error {
 		"msisdn, "+
 		"operator_code, "+
 		"country_code, "+
+		"pixel, "+
+		"publisher, "+
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
@@ -377,6 +379,8 @@ func (r Record) StartRetry() error {
 		&r.Msisdn,
 		&r.OperatorCode,
 		&r.CountryCode,
+		&r.Pixel,
+		&r.Publisher,
 		&r.ServiceId,
 		&r.SubscriptionId,
 		&r.CampaignId)

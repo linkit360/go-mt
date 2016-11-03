@@ -16,9 +16,35 @@ ALTER TABLE xmp_subscriptions ADD COLUMN publisher VARCHAR(511)NOT NULL DEFAULT 
 ALTER TABLE xmp_subscriptions ADD COLUMN pixel_sent boolean NOT NULL DEFAULT false;
 ALTER TABLE xmp_subscriptions ADD COLUMN pixel_sent_at TIMESTAMP WITHOUT TIME ZONE;
 
+ALTER TABLE xmp_retries ADD COLUMN pixel VARCHAR(511) NOT NULL DEFAULT '';
+ALTER TABLE xmp_retries ADD COLUMN publisher VARCHAR(511)NOT NULL DEFAULT '';
+
+CREATE TABLE public.xmp_pixel_settings (
+    id SERIAL PRIMARY KEY ,
+    operator_code INTEGER NOT NULL DEFAULT 0,
+    country_code INTEGER NOT NULL DEFAULT 0,
+    publisher VARCHAR(511) NOT NULL DEFAULT '',
+    endpoint VARCHAR(2047) NOT NULL DEFAULT '',
+    pixels_enabled BOOLEAN NOT NULL DEFAULT false,
+    pixels_ratio INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE public.xmp_pixel_transactions (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    tid CHARACTER VARYING(127) NOT NULL DEFAULT '',
+    msisdn CHARACTER VARYING(32) NOT NULL DEFAULT '',
+    id_campaign INTEGER NOT NULL DEFAULT 0,
+    operator_code INTEGER NOT NULL DEFAULT 0,
+    country_code INTEGER NOT NULL DEFAULT 0,
+    publisher VARCHAR(511) NOT NULL DEFAULT '',
+    response_code INT NOT NULL DEFAULT 0,
+    took INT NOT NULL DEFAULT 0
+);
+
 CREATE TABLE public.xmp_subscriptions (
-    id SERIAL,
-    last_success_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+    id SERIAL PRIMARY KEY ,
+    last_success_date TIMESTAMP NOT NULL  DEFAULT now(),
     id_service INTEGER NOT NULL DEFAULT 0,
     country_code INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),

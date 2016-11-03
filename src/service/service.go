@@ -25,7 +25,7 @@ import (
 	rec "github.com/vostrok/mt_manager/src/service/instance"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
 	"github.com/vostrok/mt_manager/src/service/notifier"
-	//github.com/vostrok/pixels/src/service
+	pixels "github.com/vostrok/pixels/src/service"
 )
 
 var svc MTService
@@ -40,8 +40,10 @@ func Init(
 
 	svc.sConfig = sConf
 	svc.dbConf = dbConf
-	svc.m = initMetrics()
+	campaigns.Init(dbConf)
 	rec.Init(dbConf)
+
+	svc.m = initMetrics()
 
 	svc.n = notifier.NewNotifierService(notifConf)
 
@@ -338,6 +340,16 @@ func handle(subscription rec.Record) error {
 		}
 	}
 
+	// send everything, pixels module will decide to send pixel, or not to send
+	logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
+	svc.n.PaidNotify(pixels.Pixel{
+		Tid:            subscription.Tid,
+		Pixel:          subscription.Pixel,
+		Publisher:      subscription.Publisher,
+		SubscriptionId: subscription.SubscriptionId,
+		Msisdn:         subscription.Msisdn,
+	})
+
 	logCtx.Debug("send to operator")
 	switch {
 	case mobilink.Belongs(subscription.Msisdn):
@@ -362,14 +374,6 @@ func handleResponse(record rec.Record) {
 		} else {
 			record.Result = "paid"
 		}
-		// TODO: pixels
-		//svc.n.PaidNotify(service.Pixel{
-		//	Tid:            record.Tid,
-		//	Pixel:          record.Pixel,
-		//	Publisher:      record.Publisher,
-		//	SubscriptionId: record.SubscriptionId,
-		//	Msisdn:         record.Msisdn,
-		//})
 	} else {
 		record.SubscriptionStatus = "failed"
 		if record.AttemptsCount >= 1 {

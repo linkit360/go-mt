@@ -28,7 +28,7 @@ notifier:
     conn:
       user: linkit
       pass: dg-U_oHhy7-
-      host: localhost
+      host: 35.154.8.158
       port: 5672
     chan_capacity: 10000000
 
