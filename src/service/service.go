@@ -25,7 +25,7 @@ import (
 	rec "github.com/vostrok/mt_manager/src/service/instance"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
 	"github.com/vostrok/mt_manager/src/service/notifier"
-	"github.com/vostrok/pixels/src/service"
+	//github.com/vostrok/pixels/src/service
 )
 
 var svc MTService
@@ -39,6 +39,7 @@ func Init(
 	log.SetLevel(log.DebugLevel)
 
 	svc.sConfig = sConf
+	svc.dbConf = dbConf
 	svc.m = initMetrics()
 	rec.Init(dbConf)
 
@@ -95,6 +96,7 @@ func Init(
 
 type MTService struct {
 	sConfig  MTServiceConfig
+	dbConf   db.DataBaseConfig
 	mobilink *mobilink.Mobilink
 	m        Metrics
 	n        notifier.Notifier
@@ -360,13 +362,14 @@ func handleResponse(record rec.Record) {
 		} else {
 			record.Result = "paid"
 		}
-		svc.n.PaidNotify(service.Pixel{
-			Tid:            record.Tid,
-			Pixel:          record.Pixel,
-			Publisher:      record.Publisher,
-			SubscriptionId: record.SubscriptionId,
-			Msisdn:         record.Msisdn,
-		})
+		// TODO: pixels
+		//svc.n.PaidNotify(service.Pixel{
+		//	Tid:            record.Tid,
+		//	Pixel:          record.Pixel,
+		//	Publisher:      record.Publisher,
+		//	SubscriptionId: record.SubscriptionId,
+		//	Msisdn:         record.Msisdn,
+		//})
 	} else {
 		record.SubscriptionStatus = "failed"
 		if record.AttemptsCount >= 1 {

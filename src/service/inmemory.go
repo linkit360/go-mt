@@ -18,14 +18,12 @@ import (
 const ACTIVE_STATUS = 1
 
 var dbConn *sql.DB
-var dbConf db.DataBaseConfig
 
 func init() {
 	log.SetLevel(log.DebugLevel)
 }
 func initInMem(dbConfig db.DataBaseConfig) error {
-	dbConn = db.Init(dbConf)
-	dbConf = dbConfig
+	dbConn = db.Init(dbConfig)
 
 	if err := memServices.Reload(); err != nil {
 		return fmt.Errorf("memServices.Reload: %s", err.Error())
@@ -82,7 +80,7 @@ func (s *Services) Reload() error {
 		"sms_send, "+
 		"wording "+
 		"from %sservices where status = $1",
-		dbConf.TablePrefix)
+		svc.dbConf.TablePrefix)
 	rows, err := dbConn.Query(query, ACTIVE_STATUS)
 	if err != nil {
 		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
@@ -149,7 +147,7 @@ func (bl *BlackList) Reload() error {
 		}).Debug("blacklist reload")
 	}()
 
-	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", dbConf.TablePrefix)
+	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.dbConf.TablePrefix)
 	var rows *sql.Rows
 	rows, err = dbConn.Query(query)
 	if err != nil {
@@ -215,7 +213,7 @@ func (ops *Operators) Reload() error {
 		"rps, "+
 		"settings "+
 		"FROM %soperators",
-		dbConf.TablePrefix)
+		svc.dbConf.TablePrefix)
 	var rows *sql.Rows
 	rows, err = dbConn.Query(query)
 	if err != nil {

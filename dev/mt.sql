@@ -11,6 +11,11 @@ UPDATE xmp_services SET paid_hours = 24 WHERE id = 777;
 ALTER TABLE xmp_services ADD COLUMN delay_hours INT NOT NULL DEFAULT 10;
 UPDATE xmp_services SET delay_hours = 1 WHERE id = 777;
 
+ALTER TABLE xmp_subscriptions ADD COLUMN pixel VARCHAR(511) NOT NULL DEFAULT '';
+ALTER TABLE xmp_subscriptions ADD COLUMN publisher VARCHAR(511)NOT NULL DEFAULT '';
+ALTER TABLE xmp_subscriptions ADD COLUMN pixel_sent boolean NOT NULL DEFAULT false;
+ALTER TABLE xmp_subscriptions ADD COLUMN pixel_sent_at TIMESTAMP WITHOUT TIME ZONE;
+
 CREATE TABLE public.xmp_subscriptions (
     id SERIAL,
     last_success_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),

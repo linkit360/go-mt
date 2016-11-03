@@ -17,9 +17,10 @@ db:
   user: linkit_mobilink
   pass: A0kZN8pUAs63wePezz
   port: 5432
-  host: ec2-35-154-8-158.ap-south-1.compute.amazonaws.com
+  host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
   ssl_mode: disable
   table_prefix: xmp_
+
 
 notifier:
   queue:
@@ -28,9 +29,10 @@ notifier:
     conn:
       user: linkit
       pass: dg-U_oHhy7-
-      host: ec2-35-154-8-158.ap-south-1.compute.amazonaws.com
+      host: localhost
       port: 5672
     chan_capacity: 10000000
+
 
 mobilink:
   enabled: true
@@ -192,5 +194,3 @@ mobilink:
       user: SLYEPPLA
       pass: SLYPEE_1
       timeout: 30
-
-

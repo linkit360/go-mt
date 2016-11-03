@@ -9,7 +9,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	db_conn "github.com/vostrok/db"
+	"github.com/vostrok/db"
 )
 
 var mutSubscriptions sync.RWMutex
@@ -39,15 +39,13 @@ type Record struct {
 	Publisher          string    `json:",omitempty"`
 }
 
-var db *sql.DB
-var dbConf db_conn.DataBaseConfig
+var dbConn *sql.DB
+var conf db.DataBaseConfig
 
-func Init(dbC db_conn.DataBaseConfig) {
+func Init(dbC db.DataBaseConfig) {
 	log.SetLevel(log.DebugLevel)
-
-	db = db_conn.Init(dbC)
-	dbConf = dbC
-	fmt.Println(dbC)
+	dbConn = db.Init(dbC)
+	conf = dbC
 }
 
 func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
@@ -63,6 +61,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		"tid, "+
 		"msisdn, "+
 		"pixel, "+
+		"publisher, "+
 		"id_service, "+
 		"id_campaign, "+
 		"operator_code, "+
@@ -71,10 +70,10 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 		" FROM %ssubscriptions "+
 		" WHERE result = '' "+
 		" ORDER BY id DESC LIMIT %s",
-		dbConf.TablePrefix,
+		conf.TablePrefix,
 		strconv.Itoa(batchLimit),
 	)
-	rows, err := db.Query(query)
+	rows, err := dbConn.Query(query)
 	if err != nil {
 		return subscr, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
@@ -88,6 +87,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 			&record.Tid,
 			&record.Msisdn,
 			&record.Pixel,
+			&record.Publisher,
 			&record.ServiceId,
 			&record.CampaignId,
 			&record.OperatorCode,
@@ -122,6 +122,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"keep_days, "+
 		"msisdn, "+
 		"pixel, "+
+		"publisher, "+
 		"operator_code, "+
 		"country_code, "+
 		"id_service, "+
@@ -130,10 +131,10 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"FROM %sretries "+
 		"WHERE (CURRENT_TIMESTAMP - delay_hours * INTERVAL '1 hour' ) > last_pay_attempt_at "+
 		"ORDER BY last_pay_attempt_at DESC LIMIT %s", // get the last touched
-		dbConf.TablePrefix,
+		conf.TablePrefix,
 		strconv.Itoa(batchLimit),
 	)
-	rows, err := db.Query(query)
+	rows, err := dbConn.Query(query)
 	if err != nil {
 		return retries, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
@@ -150,6 +151,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 			&record.KeepDays,
 			&record.Msisdn,
 			&record.Pixel,
+			&record.Publisher,
 			&record.OperatorCode,
 			&record.CountryCode,
 			&record.ServiceId,
@@ -191,13 +193,13 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 		"WHERE id < $1 AND "+
 		" msisdn = $2 AND id_service = $3 "+
 		"ORDER BY created_at DESC LIMIT 1",
-		dbConf.TablePrefix)
+		conf.TablePrefix)
 
 	mutSubscriptions.Lock()
 	defer mutSubscriptions.Unlock()
 
 	var p PreviuosSubscription
-	if err := db.QueryRow(query,
+	if err := dbConn.QueryRow(query,
 		t.SubscriptionId,
 		t.Msisdn,
 		t.ServiceId,
@@ -231,11 +233,11 @@ func (t Record) WriteTransaction() error {
 		"operator_token, "+
 		"price "+
 		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-		dbConf.TablePrefix)
+		conf.TablePrefix)
 
 	mutTransactions.Lock()
 	defer mutTransactions.Unlock()
-	_, err := db.Exec(
+	_, err := dbConn.Exec(
 		query,
 		t.Msisdn,
 		t.Result,
@@ -270,13 +272,13 @@ func (s Record) WriteSubscriptionStatus() error {
 		"result = $1, "+
 		"attempts_count = attempts_count + 1, "+
 		"last_pay_attempt_at = $2 "+
-		"where id = $3", dbConf.TablePrefix)
+		"where id = $3", conf.TablePrefix)
 
 	mutSubscriptions.Lock()
 	defer mutSubscriptions.Unlock()
 
 	lastPayAttemptAt := time.Now()
-	_, err := db.Exec(query,
+	_, err := dbConn.Exec(query,
 		s.SubscriptionStatus,
 		lastPayAttemptAt,
 		s.SubscriptionId,
@@ -300,9 +302,9 @@ func (r Record) RemoveRetry() error {
 			"took": time.Since(begin),
 		}).Debug("remove retry")
 	}()
-	query := fmt.Sprintf("DELETE FROM %sretries WHERE id = $1", dbConf.TablePrefix)
+	query := fmt.Sprintf("DELETE FROM %sretries WHERE id = $1", conf.TablePrefix)
 
-	_, err := db.Exec(query, r.RetryId)
+	_, err := dbConn.Exec(query, r.RetryId)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
@@ -325,11 +327,11 @@ func (r Record) TouchRetry() error {
 	query := fmt.Sprintf("UPDATE %sretries SET "+
 		"last_pay_attempt_at = $1, "+
 		"attempts_count = attempts_count + 1 "+
-		"WHERE id = $2", dbConf.TablePrefix)
+		"WHERE id = $2", conf.TablePrefix)
 
 	lastPayAttemptAt := time.Now()
 
-	_, err := db.Exec(query, lastPayAttemptAt, r.RetryId)
+	_, err := dbConn.Exec(query, lastPayAttemptAt, r.RetryId)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
@@ -367,8 +369,8 @@ func (r Record) StartRetry() error {
 		"id_subscription, "+
 		"id_campaign "+
 		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-		dbConf.TablePrefix)
-	_, err := db.Exec(query,
+		conf.TablePrefix)
+	_, err := dbConn.Exec(query,
 		&r.Tid,
 		&r.KeepDays,
 		&r.DelayHours,
@@ -395,8 +397,8 @@ func (r Record) AddBlacklistedNumber() error {
 	}()
 
 	query := fmt.Sprintf("INSERT INTO  %smsisdn_blacklist ( msisdn ) VALUES ($1)",
-		dbConf.TablePrefix)
-	if _, err := db.Exec(query, &r.Msisdn); err != nil {
+		conf.TablePrefix)
+	if _, err := dbConn.Exec(query, &r.Msisdn); err != nil {
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 	return nil

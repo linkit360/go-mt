@@ -13,14 +13,13 @@ db:
   conn_ttl: -1
   max_conns: 15
   timeout: 30
-  name: linkit_mobilink
-  user: linkit_mobilink
-  pass: A0kZN8pUAs63wePezz
+  name: linkit_dev
+  user: linkit
+  pass: E0kZN8pUAs63wePepf
   port: 5432
-  host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
+  host: linkit.cz3twmoynbq5.eu-central-1.rds.amazonaws.com
   ssl_mode: disable
   table_prefix: xmp_
-
 
 notifier:
   queue:
@@ -29,10 +28,9 @@ notifier:
     conn:
       user: linkit
       pass: dg-U_oHhy7-
-      host: linkit-mobilink.cb2q7f7mvbwr.ap-south-1.rds.amazonaws.com
+      host: localhost
       port: 5672
     chan_capacity: 10000000
-
 
 mobilink:
   enabled: true
@@ -194,3 +192,5 @@ mobilink:
       user: SLYEPPLA
       pass: SLYPEE_1
       timeout: 30
+
+
