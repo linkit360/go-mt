@@ -36,6 +36,7 @@ type Record struct {
 	OperatorErr        string    `json:",omitempty"`
 	Price              int       `json:",omitempty"`
 	Pixel              string    `json:",omitempty"`
+	Publisher          string    `json:",omitempty"`
 }
 
 var db *sql.DB

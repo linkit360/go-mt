@@ -363,6 +363,7 @@ func handleResponse(record rec.Record) {
 		svc.n.PaidNotify(service.Pixel{
 			Tid:            record.Tid,
 			Pixel:          record.Pixel,
+			Publisher:      record.Publisher,
 			SubscriptionId: record.SubscriptionId,
 			Msisdn:         record.Msisdn,
 		})
