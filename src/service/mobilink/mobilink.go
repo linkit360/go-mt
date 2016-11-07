@@ -75,24 +75,13 @@ type Metrics struct {
 	SMPPConnected   metrics.Gauge
 	ResponseLen     metrics.Gauge
 	PendingRequests metrics.Gauge
-	//ErrorCount           metrics.Gauge
-	//ErrorRate            metrics.Gauge
-	BalanceCheckDuration metrics.TimeHistogram
-	TarifficateDuration  metrics.TimeHistogram
 }
 
 func initMetrics() Metrics {
-	var quantiles = []int{50, 90, 95, 99}
 	return Metrics{
 		SMPPConnected:   expvar.NewGauge("mobilink_smpp_connected"),
 		ResponseLen:     expvar.NewGauge("mobilink_responses_queue"),
 		PendingRequests: expvar.NewGauge("mobilink_request_queue"),
-		//ErrorRate:       expvar.NewGauge("mobilink_error_rate"),
-		//ErrorCount:      expvar.NewGauge("mobilink_error_count"),
-		BalanceCheckDuration: metrics.NewTimeHistogram(time.Second,
-			expvar.NewHistogram("duration_s_charge", 0, 1000, 3, quantiles...)),
-		TarifficateDuration: metrics.NewTimeHistogram(time.Second,
-			expvar.NewHistogram("duration_s_tarifficate", 0, 1000, 3, quantiles...)),
 	}
 }
 
@@ -277,10 +266,8 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		}
 		if err != nil {
 			fields["error"] = err.Error()
-			//mb.M.ErrorCount.Add(1)
 		}
 		log.WithFields(fields).Info("mobilink")
-		mb.M.TarifficateDuration.Observe(time.Since(begin))
 	}()
 
 	// separate transaction for mobilink
@@ -436,7 +423,6 @@ func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
 			fields["error"] = err.Error()
 		}
 		log.WithFields(fields).Info("mobilink check balance")
-		mb.M.BalanceCheckDuration.Observe(time.Since(begin))
 	}()
 
 	resp, err := mb.client.Do(req)

@@ -61,7 +61,7 @@ func Init(
 
 	go func() {
 		for range time.Tick(time.Second) {
-			svc.m.SinceSuccessPaid.Set(svc.m.SinceSuccessPaid.Get() + 1.0)
+			//svc.m.SinceSuccessPaid.Set(svc.m.SinceSuccessPaid.Get() + 1.0)
 			svc.mobilink.M.ResponseLen.Set(float64(len(svc.mobilink.Response)))
 			svc.mobilink.M.PendingRequests.Set(float64(svc.mobilink.GetMTChanGap()))
 		}
@@ -344,10 +344,13 @@ func handle(subscription rec.Record) error {
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		svc.n.PaidNotify(pixels.Pixel{
 			Tid:            subscription.Tid,
+			Msisdn:         subscription.Msisdn,
+			CampaignId:     subscription.CampaignId,
+			SubscriptionId: subscription.SubscriptionId,
+			OperatorCode:   subscription.OperatorCode,
+			CountryCode:    subscription.CountryCode,
 			Pixel:          subscription.Pixel,
 			Publisher:      subscription.Publisher,
-			SubscriptionId: subscription.SubscriptionId,
-			Msisdn:         subscription.Msisdn,
 		})
 	} else {
 		logCtx.Debug("pixel is empty")

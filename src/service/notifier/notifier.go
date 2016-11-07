@@ -54,7 +54,7 @@ func (service notifier) PaidNotify(msg service.Pixel) error {
 	log.WithField("pixel", fmt.Sprintf("%#v", msg)).Debug("got pixel")
 
 	event := EventNotify{
-		EventName: "paid",
+		EventName: "pixels",
 		EventData: msg,
 	}
 	body, err := json.Marshal(event)
