@@ -89,10 +89,10 @@ func initMetrics() Metrics {
 		PendingRequests: expvar.NewGauge("mobilink_request_queue"),
 		//ErrorRate:       expvar.NewGauge("mobilink_error_rate"),
 		//ErrorCount:      expvar.NewGauge("mobilink_error_count"),
-		BalanceCheckDuration: metrics.NewTimeHistogram(time.Millisecond,
-			expvar.NewHistogram("duration_ms_charge", 0, 10000, 3, quantiles...)),
-		TarifficateDuration: metrics.NewTimeHistogram(time.Millisecond,
-			expvar.NewHistogram("duration_ms_tarifficate", 0, 10000, 3, quantiles...)),
+		BalanceCheckDuration: metrics.NewTimeHistogram(time.Second,
+			expvar.NewHistogram("duration_s_charge", 0, 1000, 3, quantiles...)),
+		TarifficateDuration: metrics.NewTimeHistogram(time.Second,
+			expvar.NewHistogram("duration_s_tarifficate", 0, 1000, 3, quantiles...)),
 	}
 }
 

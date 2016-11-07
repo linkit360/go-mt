@@ -25,8 +25,8 @@ CREATE TABLE public.xmp_pixel_settings (
     country_code INTEGER NOT NULL DEFAULT 0,
     publisher VARCHAR(511) NOT NULL DEFAULT '',
     endpoint VARCHAR(2047) NOT NULL DEFAULT '',
-    pixels_enabled BOOLEAN NOT NULL DEFAULT false,
-    pixels_ratio INT NOT NULL DEFAULT 0
+    enabled BOOLEAN NOT NULL DEFAULT false,
+    ratio INT NOT NULL DEFAULT 2
 );
 
 CREATE TABLE public.xmp_pixel_transactions (
@@ -37,6 +37,7 @@ CREATE TABLE public.xmp_pixel_transactions (
     id_campaign INTEGER NOT NULL DEFAULT 0,
     operator_code INTEGER NOT NULL DEFAULT 0,
     country_code INTEGER NOT NULL DEFAULT 0,
+    pixel VARCHAR(511) NOT NULL DEFAULT '',
     publisher VARCHAR(511) NOT NULL DEFAULT '',
     response_code INT NOT NULL DEFAULT 0,
     took INT NOT NULL DEFAULT 0

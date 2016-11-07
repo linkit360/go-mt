@@ -40,7 +40,6 @@ func Init(
 
 	svc.sConfig = sConf
 	svc.dbConf = dbConf
-	campaigns.Init(dbConf)
 	rec.Init(dbConf)
 
 	svc.m = initMetrics()
@@ -341,14 +340,18 @@ func handle(subscription rec.Record) error {
 	}
 
 	// send everything, pixels module will decide to send pixel, or not to send
-	logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
-	svc.n.PaidNotify(pixels.Pixel{
-		Tid:            subscription.Tid,
-		Pixel:          subscription.Pixel,
-		Publisher:      subscription.Publisher,
-		SubscriptionId: subscription.SubscriptionId,
-		Msisdn:         subscription.Msisdn,
-	})
+	if subscription.Pixel != "" {
+		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
+		svc.n.PaidNotify(pixels.Pixel{
+			Tid:            subscription.Tid,
+			Pixel:          subscription.Pixel,
+			Publisher:      subscription.Publisher,
+			SubscriptionId: subscription.SubscriptionId,
+			Msisdn:         subscription.Msisdn,
+		})
+	} else {
+		logCtx.Debug("pixel is empty")
+	}
 
 	logCtx.Debug("send to operator")
 	switch {
@@ -361,6 +364,7 @@ func handle(subscription rec.Record) error {
 	}
 	return nil
 }
+
 func handleResponse(record rec.Record) {
 	//logCtx := log.WithField("subscription", record)
 	logCtx := log.WithFields(log.Fields{})
