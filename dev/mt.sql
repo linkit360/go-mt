@@ -40,6 +40,7 @@ CREATE TABLE public.xmp_pixel_transactions (
     operator_code INTEGER NOT NULL DEFAULT 0,
     country_code INTEGER NOT NULL DEFAULT 0,
     pixel VARCHAR(511) NOT NULL DEFAULT '',
+    endpoint VARCHAR(511) NOT NULL DEFAULT '',
     publisher VARCHAR(511) NOT NULL DEFAULT '',
     response_code INT NOT NULL DEFAULT 0
 );

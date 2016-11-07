@@ -24,8 +24,7 @@ import (
 	"github.com/vostrok/db"
 	rec "github.com/vostrok/mt_manager/src/service/instance"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
-	"github.com/vostrok/mt_manager/src/service/notifier"
-	pixels "github.com/vostrok/pixels/src/service"
+	"github.com/vostrok/pixels/src/notifier"
 )
 
 var svc MTService
@@ -342,7 +341,7 @@ func handle(subscription rec.Record) error {
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" {
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
-		svc.n.PaidNotify(pixels.Pixel{
+		svc.n.PixelNotify(notifier.Pixel{
 			Tid:            subscription.Tid,
 			Msisdn:         subscription.Msisdn,
 			CampaignId:     subscription.CampaignId,

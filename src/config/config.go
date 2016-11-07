@@ -10,7 +10,7 @@ import (
 	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
-	"github.com/vostrok/mt_manager/src/service/notifier"
+	"github.com/vostrok/pixels/src/notifier"
 )
 
 type ServerConfig struct {
