@@ -360,7 +360,8 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	for _, v := range mb.conf.Connection.MT.PaidBodyContains {
+	var v string
+	for _, v = range mb.conf.Connection.MT.PaidBodyContains {
 		if strings.Contains(string(mobilinkResponse), v) {
 			log.WithFields(log.Fields{
 				"msisdn": msisdn,
@@ -377,7 +378,8 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 		"tid":    tid,
 		"price":  price,
 	}).Info("charge has failed")
-	return token, errors.New("Charge has failed")
+	err = errors.New("Charge has failed")
+	return token, err
 }
 
 func (mb *Mobilink) SMS(tid, msisdn, msg string) error {

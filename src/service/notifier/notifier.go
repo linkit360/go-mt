@@ -74,7 +74,7 @@ func (service notifier) OperatorTransactionNotify(msg transactions.OperatorTrans
 	return nil
 }
 
-// XXX todo
+// XXX
 func (service notifier) PixelNotify(msg pixels.Pixel) error {
 	log.WithField("pixel", fmt.Sprintf("%#v", msg)).Debug("got pixel")
 

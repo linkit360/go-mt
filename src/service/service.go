@@ -346,7 +346,7 @@ func handle(subscription rec.Record) error {
 	}
 
 	// send everything, pixels module will decide to send pixel, or not to send
-	if subscription.Pixel != "" {
+	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		svc.notifier.PixelNotify(pixels.Pixel{
 			Tid:            subscription.Tid,
