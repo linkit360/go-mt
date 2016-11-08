@@ -8,8 +8,6 @@
 // if everything is ok, then remove item
 // if not, "touch" item == renew attempts count and last attempt date
 
-// todo: order by created_at - first in first out
-
 package service
 
 import (
@@ -24,7 +22,8 @@ import (
 	"github.com/vostrok/db"
 	rec "github.com/vostrok/mt_manager/src/service/instance"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
-	"github.com/vostrok/pixels/src/notifier"
+	"github.com/vostrok/mt_manager/src/service/notifier"
+	pixels "github.com/vostrok/pixels/src/notifier"
 )
 
 var svc MTService
@@ -43,7 +42,7 @@ func Init(
 
 	svc.m = initMetrics()
 
-	svc.n = notifier.NewNotifierService(notifConf)
+	svc.notifier = notifier.NewNotifierService("mt_manager", notifConf)
 
 	if err := initInMem(dbConf); err != nil {
 		log.WithField("error", err.Error()).Fatal("init in memory tables")
@@ -55,7 +54,7 @@ func Init(
 		log.WithField("error", "no db record for mobilink").Fatal("get mobilink from db")
 	}
 
-	svc.mobilink = mobilink.Init(mobilinkDb.Rps, mobConf)
+	svc.mobilink = mobilink.Init(mobilinkDb.Rps, mobConf, svc.notifier)
 	log.Info("mt service init ok")
 
 	go func() {
@@ -99,7 +98,7 @@ type MTService struct {
 	dbConf   db.DataBaseConfig
 	mobilink *mobilink.Mobilink
 	m        Metrics
-	n        notifier.Notifier
+	notifier notifier.Notifier
 }
 type MTServiceConfig struct {
 	SubscriptionsSec   int `default:"600" yaml:"subscriptions_period"`
@@ -341,7 +340,7 @@ func handle(subscription rec.Record) error {
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" {
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
-		svc.n.PixelNotify(notifier.Pixel{
+		svc.notifier.PixelNotify(pixels.Pixel{
 			Tid:            subscription.Tid,
 			Msisdn:         subscription.Msisdn,
 			CampaignId:     subscription.CampaignId,

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,20 +24,22 @@ import (
 	"github.com/go-kit/kit/metrics/expvar"
 
 	rec "github.com/vostrok/mt_manager/src/service/instance"
-	"os"
+	"github.com/vostrok/mt_manager/src/service/notifier"
+	transaction_log_service "github.com/vostrok/qlistener/src/service"
 )
 
 type Mobilink struct {
-	conf        Config
-	rps         int
-	mtChannel   chan rec.Record
-	Response    chan rec.Record
-	M           Metrics
-	location    *time.Location
-	client      *http.Client
-	smpp        *smpp_client.Transmitter
-	responseLog *log.Logger
-	requestLog  *log.Logger
+	conf            Config
+	rps             int
+	mtChannel       chan rec.Record
+	Response        chan rec.Record
+	M               Metrics
+	location        *time.Location
+	client          *http.Client
+	smpp            *smpp_client.Transmitter
+	responseLog     *log.Logger
+	requestLog      *log.Logger
+	transactionsLog notifier.Notifier
 }
 type Config struct {
 	Enabled        bool                 `default:"true" yaml:"enabled"`
@@ -61,6 +64,7 @@ type SmppConfig struct {
 	Password    string `default:"SLYPEE_1" yaml:"pass"`
 	Timeout     int    `default:"20" yaml:"timeout"`
 }
+
 type MTConfig struct {
 	Url                  string            `default:"http://182.16.255.46:10020/Air" yaml:"url" json:"url"`
 	Headers              map[string]string `yaml:"headers" json:"headers"`
@@ -87,13 +91,19 @@ func initMetrics() Metrics {
 
 // todo: chan gap cannot be too big bzs of the size
 
-func Init(mobilinkRps int, mobilinkConf Config) *Mobilink {
+func Init(
+	mobilinkRps int,
+	mobilinkConf Config,
+	transactionsLog notifier.Notifier,
+) *Mobilink {
 	mb := &Mobilink{
 		rps:  mobilinkRps,
 		conf: mobilinkConf,
 		M:    initMetrics(),
 	}
 	log.Info("mb metrics init done")
+
+	mb.transactionsLog = transactionsLog
 
 	mb.requestLog = getLogger(mobilinkConf.TransactionLog.RequestLogPath)
 	log.Info("request logger init done")
@@ -198,7 +208,7 @@ func (mb *Mobilink) mtReader() {
 			<-throttle
 			var err error
 
-			record.OperatorToken, err = mb.mt(record.Tid, record.Msisdn, record.Price)
+			record.OperatorToken, err = mb.mt(record)
 			if err != nil {
 				record.OperatorErr = err.Error()
 			}
@@ -207,7 +217,11 @@ func (mb *Mobilink) mtReader() {
 	}
 }
 
-func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
+func (mb *Mobilink) mt(r rec.Record) (string, error) {
+	msisdn := r.Msisdn
+	tid := r.Tid
+	price := r.Price
+
 	if !Belongs(msisdn) {
 		log.WithFields(log.Fields{
 			"msisdn": msisdn,
@@ -250,6 +264,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 	req.Header.Set("Content-Length", strconv.Itoa(len(requestBody)))
 	req.Close = false
 
+	var responseCode int
 	// transaction log for internal logging
 	var mobilinkResponse []byte
 	begin := time.Now()
@@ -290,10 +305,30 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 			"requestResponse": strings.TrimSpace(string(mobilinkResponse)),
 			"took":            time.Since(begin),
 		}
+		errStr := ""
 		if err != nil {
-			fields["error"] = err.Error()
+			errStr = err.Error()
+			fields["error"] = errStr
 		}
 		mb.responseLog.WithFields(fields).Println("mobilink response")
+
+		msg := transaction_log_service.OperatorTransactionLog{
+			Tid:            r.Tid,
+			Msisdn:         r.Msisdn,
+			OperatorToken:  token,
+			OperatorCode:   r.OperatorCode,
+			CountryCode:    r.CountryCode,
+			Error:          errStr,
+			Price:          r.Price,
+			ServiceId:      r.ServiceId,
+			SubscriptionId: r.SubscriptionId,
+			CampaignId:     r.CampaignId,
+			RequestBody:    strings.TrimSpace(requestBody),
+			ResponseBody:   strings.TrimSpace(string(mobilinkResponse)),
+			ResponseCode:   responseCode,
+		}
+		mb.transactionsLog.OperatorTransactionNotify(msg)
+
 	}()
 
 	resp, err := mb.client.Do(req)
@@ -308,7 +343,7 @@ func (mb *Mobilink) mt(tid, msisdn string, price int) (string, error) {
 		err = fmt.Errorf("client.Do: %s", err.Error())
 		return "", err
 	}
-
+	responseCode = resp.StatusCode
 	mobilinkResponse, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.WithFields(log.Fields{

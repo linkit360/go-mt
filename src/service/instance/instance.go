@@ -370,7 +370,7 @@ func (r Record) StartRetry() error {
 		"id_service, "+
 		"id_subscription, "+
 		"id_campaign "+
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
 		conf.TablePrefix)
 	_, err := dbConn.Exec(query,
 		&r.Tid,

@@ -24,6 +24,7 @@ db:
 notifier:
   queue:
     pixels: pixels
+    operator_transactions: operator_transactions
   rbmq:
     conn:
       user: linkit

@@ -93,3 +93,22 @@ CREATE TABLE xmp_retries (
     id_subscription INTEGER NOT NULL,
     id_campaign INTEGER NOT NULL
 );
+
+
+CREATE TABLE xmp_operator_transaction_log (
+    id serial PRIMARY KEY,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+    tid  varchar(127) NOT NULL DEFAULT '',
+    msisdn VARCHAR(32) NOT NULL,
+    operator_code INTEGER NOT NULL,
+    country_code INTEGER NOT NULL,
+    operator_token CHARACTER VARYING(511) NOT NULL,
+    error varchar(511) NOT NULL DEFAULT '',
+    price INTEGER NOT NULL,
+    id_service INTEGER NOT NULL,
+    id_subscription INTEGER NOT NULL,
+    id_campaign INTEGER NOT NULL,
+    request_body varchar(16391) NOT NULL DEFAULT '',
+    response_body varchar(16391) NOT NULL DEFAULT '',
+    response_code INT NOT NULL DEFAULT 0
+);
