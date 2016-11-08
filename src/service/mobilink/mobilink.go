@@ -369,7 +369,7 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 				"tid":    tid,
 				"price":  price,
 			}).Info("charged")
-			responseDecision = v
+			responseDecision = "paid"
 			return token, nil
 		}
 	}
@@ -380,7 +380,7 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 	}).Info("charge has failed")
 
 	err = errors.New("Charge has failed")
-	responseDecision = err.Error()
+	responseDecision = "failed"
 	return token, err
 }
 
