@@ -31,6 +31,9 @@ func initInMem(dbConfig db.DataBaseConfig) error {
 	if err := memBlackListed.Reload(); err != nil {
 		return fmt.Errorf("memBlackListed.Reload: %s", err.Error())
 	}
+	if err := memPostPaid.Reload(); err != nil {
+		return fmt.Errorf("memPostPaid.Reload: %s", err.Error())
+	}
 	if err := memOperators.Reload(); err != nil {
 		return fmt.Errorf("memOperators.Reload: %s", err.Error())
 	}
@@ -178,6 +181,63 @@ func (bl *BlackList) Reload() error {
 }
 
 // Tasks:
+// Keep in memory all active postpaid msisdn-s
+// Reload when changes to service are done
+var memPostPaid = &PostPaidList{}
+
+type PostPaidList struct {
+	sync.RWMutex
+	Map map[string]struct{}
+}
+
+func (pp *PostPaidList) Reload() error {
+	var err error
+	pp.Lock()
+	defer pp.Unlock()
+	log.WithFields(log.Fields{}).Debug("post paid reload...")
+	begin := time.Now()
+	defer func() {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		log.WithFields(log.Fields{
+			"error": errStr,
+			"took":  time.Since(begin),
+		}).Debug("post paid reload")
+	}()
+
+	query := fmt.Sprintf("select msisdn from %smsisdn_postpaid", svc.dbConf.TablePrefix)
+	var rows *sql.Rows
+	rows, err = dbConn.Query(query)
+	if err != nil {
+		err = fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
+		return err
+	}
+	defer rows.Close()
+
+	var postPaidList []string
+	for rows.Next() {
+		var msisdn string
+		if err = rows.Scan(&msisdn); err != nil {
+			err = fmt.Errorf("rows.Scan: %s", err.Error())
+			return err
+		}
+		postPaidList = append(postPaidList, msisdn)
+	}
+	if rows.Err() != nil {
+		err = fmt.Errorf("rows.Err: %s", err.Error())
+		return err
+	}
+
+	pp.Map = make(map[string]struct{}, len(postPaidList))
+	for _, msisdn := range postPaidList {
+		pp.Map[msisdn] = struct{}{}
+	}
+	return nil
+}
+
+// Tasks:
 // Keep in memory all active blacklisted msisdn-s
 // Reload when changes to service are done
 var memOperators = &Operators{}
@@ -281,6 +341,13 @@ func Reload(c *gin.Context) {
 	switch {
 	case strings.Contains(table, "blacklist"):
 		err = memBlackListed.Reload()
+		if err != nil {
+			r.Status = http.StatusInternalServerError
+		} else {
+			r.Success = true
+		}
+	case strings.Contains(table, "postpaid"):
+		err = memPostPaid.Reload()
 		if err != nil {
 			r.Status = http.StatusInternalServerError
 		} else {

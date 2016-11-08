@@ -312,6 +312,14 @@ func handle(subscription rec.Record) error {
 		return nil
 	}
 
+	logCtx.Debug("postpaid checks..")
+	if _, ok := memPostPaid.Map[subscription.Msisdn]; ok {
+		logCtx.Info("immemory postpaid")
+		subscription.SubscriptionStatus = "postpaid"
+		subscription.WriteSubscriptionStatus()
+		return nil
+	}
+
 	if mobilink.Belongs(subscription.Msisdn) {
 		begin := time.Now()
 		postPaid, err := svc.mobilink.BalanceCheck(subscription.Tid, subscription.Msisdn)
@@ -319,19 +327,19 @@ func handle(subscription rec.Record) error {
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 				"took":  time.Since(begin),
-			}).Debug("check blacklisted error")
+			}).Debug("check postpaid error")
 			return err
 		}
 
 		if postPaid {
-			logCtx.Debug("number is blacklisted by operator")
-			if err = subscription.AddBlacklistedNumber(); err != nil {
-				logCtx.WithField("error", err.Error()).Debug("add blacklist error")
+			logCtx.Debug("number is postpaid")
+			if err = subscription.AddPostPaidNumber(); err != nil {
+				logCtx.WithField("error", err.Error()).Debug("add postpaid error")
 				return err
 			}
-			logCtx.Info("new blacklist number added")
-			memBlackListed.Reload()
-			subscription.SubscriptionStatus = "blacklisted"
+			logCtx.Info("new postpaid number added")
+			memPostPaid.Reload()
+			subscription.SubscriptionStatus = "postpaid"
 			subscription.WriteSubscriptionStatus()
 			return nil
 		}

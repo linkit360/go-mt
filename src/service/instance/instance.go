@@ -407,3 +407,21 @@ func (r Record) AddBlacklistedNumber() error {
 	}
 	return nil
 }
+
+func (r Record) AddPostPaidNumber() error {
+	begin := time.Now()
+	defer func() {
+		log.WithFields(log.Fields{
+			"tid":    r.Tid,
+			"msisdn": r.Msisdn,
+			"took":   time.Since(begin),
+		}).Debug("add postpaid")
+	}()
+
+	query := fmt.Sprintf("INSERT INTO  %smsisdn_postpaid ( msisdn ) VALUES ($1)",
+		conf.TablePrefix)
+	if _, err := dbConn.Exec(query, &r.Msisdn); err != nil {
+		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
+	}
+	return nil
+}
