@@ -265,6 +265,7 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 	req.Close = false
 
 	var responseCode int
+	var responseDecision string
 	// transaction log for internal logging
 	var mobilinkResponse []byte
 	begin := time.Now()
@@ -313,19 +314,20 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 		mb.responseLog.WithFields(fields).Println("mobilink response")
 
 		msg := transaction_log_service.OperatorTransactionLog{
-			Tid:            r.Tid,
-			Msisdn:         r.Msisdn,
-			OperatorToken:  token,
-			OperatorCode:   r.OperatorCode,
-			CountryCode:    r.CountryCode,
-			Error:          errStr,
-			Price:          r.Price,
-			ServiceId:      r.ServiceId,
-			SubscriptionId: r.SubscriptionId,
-			CampaignId:     r.CampaignId,
-			RequestBody:    strings.TrimSpace(requestBody),
-			ResponseBody:   strings.TrimSpace(string(mobilinkResponse)),
-			ResponseCode:   responseCode,
+			Tid:              r.Tid,
+			Msisdn:           r.Msisdn,
+			OperatorToken:    token,
+			OperatorCode:     r.OperatorCode,
+			CountryCode:      r.CountryCode,
+			Error:            errStr,
+			Price:            r.Price,
+			ServiceId:        r.ServiceId,
+			SubscriptionId:   r.SubscriptionId,
+			CampaignId:       r.CampaignId,
+			RequestBody:      strings.TrimSpace(requestBody),
+			ResponseBody:     strings.TrimSpace(string(mobilinkResponse)),
+			ResponseDecision: responseDecision,
+			ResponseCode:     responseCode,
 		}
 		mb.transactionsLog.OperatorTransactionNotify(msg)
 
@@ -366,6 +368,7 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 				"tid":    tid,
 				"price":  price,
 			}).Info("charged")
+			responseDecision = v
 			return token, nil
 		}
 	}
@@ -484,5 +487,5 @@ func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
 
 func MobilinkHandler(c *gin.Context) {
 	c.Writer.WriteHeader(200)
-	c.Writer.Write([]byte(`<value><i4>11</i4></value>`))
+	c.Writer.Write([]byte(`<value><i4>0</i4></value>`))
 }

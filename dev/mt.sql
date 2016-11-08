@@ -110,5 +110,6 @@ CREATE TABLE xmp_operator_transaction_log (
     id_campaign INTEGER NOT NULL,
     request_body varchar(16391) NOT NULL DEFAULT '',
     response_body varchar(16391) NOT NULL DEFAULT '',
+    response_decision varchar(511) NOT NULL DEFAULT '',
     response_code INT NOT NULL DEFAULT 0
 );
