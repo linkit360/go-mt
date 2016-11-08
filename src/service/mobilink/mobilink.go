@@ -378,7 +378,9 @@ func (mb *Mobilink) mt(r rec.Record) (string, error) {
 		"tid":    tid,
 		"price":  price,
 	}).Info("charge has failed")
+
 	err = errors.New("Charge has failed")
+	responseDecision = err.Error()
 	return token, err
 }
 
