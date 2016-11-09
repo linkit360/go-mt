@@ -1,3 +1,5 @@
+name: mumbai_mt_manager
+
 server:
   port: 50305
 

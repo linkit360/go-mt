@@ -58,7 +58,7 @@ func Init(
 
 	go func() {
 		for range time.Tick(time.Second) {
-			//svc.m.SinceSuccessPaid.Set(svc.m.SinceSuccessPaid.Get() + 1.0)
+			m.SinceSuccessPaid.Add(1.0)
 			svc.mobilink.M.ResponseLen.Set(float64(len(svc.mobilink.Response)))
 			svc.mobilink.M.PendingRequests.Set(float64(svc.mobilink.GetMTChanGap()))
 		}
@@ -239,12 +239,7 @@ func handle(subscription rec.Record) error {
 	var err error
 	defer func() {
 		if err != nil {
-			m.Errors.Inc()
-			if subscription.AttemptsCount == 0 {
-				m.SubscriptionErrors.Inc()
-			} else {
-				m.RetryErrors.Inc()
-			}
+			m.Errors++
 		}
 	}()
 
@@ -255,15 +250,15 @@ func handle(subscription rec.Record) error {
 	if !ok {
 		logCtx.Error("service not found")
 		err = fmt.Errorf("Service id %d not found", subscription.ServiceId)
-		return
+		return err
 	}
-	logCtx.WithField("service", mService).Debug("found service")
+	logCtx.WithField("service_id", mService.Id).Debug("found service")
 
 	// misconfigured price
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
 		err = fmt.Errorf("Service price %d is zero or less", mService.Price)
-		return
+		return err
 	}
 	subscription.Price = 100 * int(mService.Price)
 
@@ -278,7 +273,7 @@ func handle(subscription rec.Record) error {
 		} else if err != nil {
 			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
 			err = fmt.Errorf("Get previous subscription: %s", err.Error())
-			return
+			return err
 		} else {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
 			paidHours := (time.Duration(mService.PaidHours) * time.Hour).Hours()
@@ -287,7 +282,7 @@ func handle(subscription rec.Record) error {
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
-				m.Rejected.Inc()
+				m.Rejected++
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
 				subscription.WriteSubscriptionStatus()
@@ -306,7 +301,7 @@ func handle(subscription rec.Record) error {
 
 	logCtx.Debug("blacklist checks..")
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
-		m.BlackListed.Inc()
+		m.BlackListed++
 		logCtx.Info("immemory blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
@@ -316,7 +311,7 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("postpaid checks..")
 	if _, ok := memPostPaid.Map[subscription.Msisdn]; ok {
 		logCtx.Info("immemory postpaid")
-		m.PostPaid.Inc()
+		m.PostPaid++
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
@@ -330,11 +325,12 @@ func handle(subscription rec.Record) error {
 				"error": err.Error(),
 				"took":  time.Since(begin),
 			}).Debug("check postpaid error")
+			err = fmt.Errorf("Postpaid number check: %s", err.Error())
 			return err
 		}
 
 		if postPaid {
-			m.PostPaid.Inc()
+			m.PostPaid++
 			logCtx.Debug("number is postpaid")
 			if err = subscription.AddPostPaidNumber(); err != nil {
 				logCtx.WithField("error", err.Error()).Debug("add postpaid error")
@@ -350,7 +346,7 @@ func handle(subscription rec.Record) error {
 
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
-		m.Pixel.Inc()
+		m.Pixel++
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		svc.notifier.PixelNotify(pixels.Pixel{
 			Tid:            subscription.Tid,

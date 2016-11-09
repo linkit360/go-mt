@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"os"
+	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
@@ -17,6 +18,7 @@ type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
+	Name     string                  `yaml:"name"`
 	Server   ServerConfig            `yaml:"server"`
 	Service  service.MTServiceConfig `yaml:"service"`
 	DbConf   db.DataBaseConfig       `yaml:"db"`
@@ -33,6 +35,12 @@ func LoadConfig() AppConfig {
 		if err := configor.Load(&appConfig, *cfg); err != nil {
 			log.WithField("config", err.Error()).Fatal("config load error")
 		}
+	}
+	if appConfig.Name == "" {
+		log.Fatal("app name must be defiled as <host>_<name>")
+	}
+	if strings.Contains(appConfig.Name, "-") {
+		log.Fatal("app name must be without '-' : it's not a valid metric name")
 	}
 
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)

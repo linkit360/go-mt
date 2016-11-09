@@ -8,9 +8,9 @@ import (
 	"runtime"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/gin-gonic/contrib/expvar"
 	"github.com/gin-gonic/gin"
 
+	"github.com/vostrok/metrics"
 	"github.com/vostrok/mt_manager/src/config"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/mt_manager/src/service/mobilink"
@@ -18,6 +18,8 @@ import (
 
 func RunServer() {
 	appConfig := config.LoadConfig()
+	metrics.Init(appConfig.Name)
+
 	service.Init(
 		appConfig.Service,
 		appConfig.DbConf,
@@ -32,12 +34,10 @@ func RunServer() {
 	r := gin.New()
 
 	service.AddCQRHandlers(r)
+	metrics.AddHandler(r)
 
 	rgMobilink := r.Group("/mobilink_handler")
 	rgMobilink.POST("", mobilink.MobilinkHandler)
-
-	rg := r.Group("/debug")
-	rg.GET("/vars", expvar.Handler())
 
 	r.Run(":" + appConfig.Server.Port)
 	log.WithField("port", appConfig.Server.Port).Info("mt init")
