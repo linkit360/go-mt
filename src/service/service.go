@@ -1,3 +1,5 @@
+package service
+
 // does following:
 // get subscription records that are in "" status (not tries to pay) or in "failed" status
 // tries to charge via operator
@@ -7,8 +9,6 @@
 // retry transaction to the operator
 // if everything is ok, then remove item
 // if not, "touch" item == renew attempts count and last attempt date
-
-package service
 
 import (
 	"database/sql"
@@ -239,7 +239,7 @@ func handle(subscription rec.Record) error {
 	var err error
 	defer func() {
 		if err != nil {
-			m.Errors++
+			m.Errors.Inc()
 		}
 	}()
 
@@ -282,7 +282,7 @@ func handle(subscription rec.Record) error {
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
-				m.Rejected++
+				m.Rejected.Inc()
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
 				subscription.WriteSubscriptionStatus()
@@ -301,7 +301,7 @@ func handle(subscription rec.Record) error {
 
 	logCtx.Debug("blacklist checks..")
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
-		m.BlackListed++
+		m.BlackListed.Inc()
 		logCtx.Info("immemory blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
@@ -311,7 +311,7 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("postpaid checks..")
 	if _, ok := memPostPaid.Map[subscription.Msisdn]; ok {
 		logCtx.Info("immemory postpaid")
-		m.PostPaid++
+		m.PostPaid.Inc()
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
@@ -330,7 +330,7 @@ func handle(subscription rec.Record) error {
 		}
 
 		if postPaid {
-			m.PostPaid++
+			m.PostPaid.Inc()
 			logCtx.Debug("number is postpaid")
 			if err = subscription.AddPostPaidNumber(); err != nil {
 				logCtx.WithField("error", err.Error()).Debug("add postpaid error")
@@ -346,7 +346,7 @@ func handle(subscription rec.Record) error {
 
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
-		m.Pixel++
+		m.Pixel.Inc()
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		svc.notifier.PixelNotify(pixels.Pixel{
 			Tid:            subscription.Tid,
