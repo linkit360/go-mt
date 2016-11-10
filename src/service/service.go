@@ -41,7 +41,7 @@ func Init(
 
 	m.Init()
 
-	svc.notifier = notifier.NewNotifierService("mt_manager", notifConf)
+	svc.notifier = notifier.NewNotifierService(notifConf)
 
 	if err := initInMem(dbConf); err != nil {
 		log.WithField("error", err.Error()).Fatal("init in memory tables")
@@ -379,6 +379,7 @@ func handleResponse(record rec.Record) {
 	logCtx := log.WithFields(log.Fields{})
 	logCtx.Info("start processing response")
 
+	//
 	if len(record.OperatorToken) > 0 && record.OperatorErr == "" {
 		m.SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"

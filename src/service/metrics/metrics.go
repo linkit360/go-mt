@@ -23,7 +23,7 @@ func newGaugeCycle(name, help string) prometheus.Gauge {
 	return m.PrometheusGauge("", "cycle", name, "Cycle "+help)
 }
 func newGaugeNotPaid(name, help string) m.Gauge {
-	return m.NewCustomMetric("not_paid_status", name, "not paid status "+help)
+	return m.NewGaugeMetric("not_paid_status", name, "not paid status "+help)
 }
 
 func Init() {

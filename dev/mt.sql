@@ -45,6 +45,9 @@ CREATE TABLE public.xmp_pixel_transactions (
     response_code INT NOT NULL DEFAULT 0
 );
 
+CREATE TYPE subscription_status AS ENUM
+('', 'failed', 'paid', 'blacklisted', 'postpaid', 'rejected', 'past', 'canceled');
+
 CREATE TABLE public.xmp_subscriptions (
     id SERIAL PRIMARY KEY ,
     last_success_date TIMESTAMP NOT NULL  DEFAULT now(),

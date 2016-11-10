@@ -43,10 +43,10 @@ func init() {
 	log.SetLevel(log.DebugLevel)
 }
 
-func NewNotifierService(name string, conf NotifierConfig) Notifier {
+func NewNotifierService(conf NotifierConfig) Notifier {
 	var n Notifier
 	{
-		rabbit := rabbit.NewPublisher(conf.Rbmq, rabbit.InitMetrics(name))
+		rabbit := rabbit.NewPublisher(conf.Rbmq, rabbit.InitPublisherMetrics())
 		n = &notifier{
 			q: queues{
 				OperatorTransactions: conf.Queue.OperatorTransactions,
