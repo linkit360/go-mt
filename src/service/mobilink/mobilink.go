@@ -7,11 +7,9 @@
 package mobilink
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,166 +18,11 @@ import (
 	smpp_client "github.com/fiorix/go-smpp/smpp"
 	"github.com/fiorix/go-smpp/smpp/pdu/pdutext"
 	"github.com/gin-gonic/gin"
-	"github.com/go-kit/kit/metrics"
-	"github.com/go-kit/kit/metrics/expvar"
 
 	rec "github.com/vostrok/mt_manager/src/service/instance"
-	"github.com/vostrok/mt_manager/src/service/notifier"
+	m "github.com/vostrok/mt_manager/src/service/metrics"
 	transaction_log_service "github.com/vostrok/qlistener/src/service"
 )
-
-type Mobilink struct {
-	conf            Config
-	rps             int
-	mtChannel       chan rec.Record
-	Response        chan rec.Record
-	M               Metrics
-	location        *time.Location
-	client          *http.Client
-	smpp            *smpp_client.Transmitter
-	responseLog     *log.Logger
-	requestLog      *log.Logger
-	transactionsLog notifier.Notifier
-}
-type Config struct {
-	Enabled        bool                 `default:"true" yaml:"enabled"`
-	MTChanCapacity int                  `default:"1000" yaml:"channel_camacity"`
-	Connection     ConnnectionConfig    `yaml:"connection"`
-	Location       string               `default:"Asia/Karachi" yaml:"location"`
-	TransactionLog TransactionLogConfig `yaml:"log_transaction"`
-}
-type TransactionLogConfig struct {
-	ResponseLogPath string `default:"/var/log/response_mobilink.log" yaml:"response"`
-	RequestLogPath  string `default:"/var/log/request_mobilink.log" yaml:"request"`
-}
-
-type ConnnectionConfig struct {
-	MT   MTConfig   `yaml:"mt" json:"mt"`
-	Smpp SmppConfig `yaml:"smpp" json:"smpp"`
-}
-type SmppConfig struct {
-	ShortNumber string `default:"4162" yaml:"short_number" json:"short_number"`
-	Addr        string `default:"182.16.255.46:15019" yaml:"endpoint"`
-	User        string `default:"SLYEPPLA" yaml:"user"`
-	Password    string `default:"SLYPEE_1" yaml:"pass"`
-	Timeout     int    `default:"20" yaml:"timeout"`
-}
-
-type MTConfig struct {
-	Url                  string            `default:"http://182.16.255.46:10020/Air" yaml:"url" json:"url"`
-	Headers              map[string]string `yaml:"headers" json:"headers"`
-	TimeoutSec           int               `default:"20" yaml:"timeout" json:"timeout"`
-	TarifficateBody      string            `yaml:"mt_body"`
-	PaidBodyContains     []string          `yaml:"paid_body_contains" json:"paid_body_contains"`
-	CheckBalanceBody     string            `yaml:"check_balance_body"`
-	PostPaidBodyContains []string          `yaml:"postpaid_body_contains" json:"postpaid_body_contains"`
-}
-
-type Metrics struct {
-	SMPPConnected   metrics.Gauge
-	ResponseLen     metrics.Gauge
-	PendingRequests metrics.Gauge
-}
-
-func initMetrics() Metrics {
-	return Metrics{
-		SMPPConnected:   expvar.NewGauge("mobilink_smpp_connected"),
-		ResponseLen:     expvar.NewGauge("mobilink_responses_queue"),
-		PendingRequests: expvar.NewGauge("mobilink_request_queue"),
-	}
-}
-
-// todo: chan gap cannot be too big bzs of the size
-
-func Init(
-	mobilinkRps int,
-	mobilinkConf Config,
-	transactionsLog notifier.Notifier,
-) *Mobilink {
-	mb := &Mobilink{
-		rps:  mobilinkRps,
-		conf: mobilinkConf,
-		M:    initMetrics(),
-	}
-	log.Info("mb metrics init done")
-
-	mb.transactionsLog = transactionsLog
-
-	mb.requestLog = getLogger(mobilinkConf.TransactionLog.RequestLogPath)
-	log.Info("request logger init done")
-
-	mb.responseLog = getLogger(mobilinkConf.TransactionLog.ResponseLogPath)
-	log.Info("response logger init done")
-
-	mb.mtChannel = make(chan rec.Record, mobilinkConf.MTChanCapacity)
-	mb.Response = make(chan rec.Record, mobilinkConf.MTChanCapacity)
-	log.WithField("capacity", mobilinkConf.MTChanCapacity).Info("channels ini done")
-
-	var err error
-	mb.location, err = time.LoadLocation(mobilinkConf.Location)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"location": mobilinkConf.Location,
-			"error":    err,
-		}).Fatal("init location")
-	}
-	log.Info("location init done")
-
-	mb.client = &http.Client{
-		Timeout: time.Duration(mobilinkConf.Connection.MT.TimeoutSec) * time.Second,
-	}
-	log.Info("http client init done")
-
-	mb.smpp = &smpp_client.Transmitter{
-		Addr:        mobilinkConf.Connection.Smpp.Addr,
-		User:        mobilinkConf.Connection.Smpp.User,
-		Passwd:      mobilinkConf.Connection.Smpp.Password,
-		RespTimeout: time.Duration(mobilinkConf.Connection.Smpp.Timeout) * time.Second,
-		SystemType:  "SMPP",
-	}
-	log.Info("smpp client init done")
-
-	connStatus := mb.smpp.Bind()
-	go func() {
-		for c := range connStatus {
-			if c.Status().String() != "Connected" {
-				mb.M.SMPPConnected.Set(0)
-				log.WithFields(log.Fields{
-					"operator": "mobilink",
-					"status":   c.Status().String(),
-					"error":    "disconnected:" + c.Status().String(),
-				}).Error("smpp moblink connect status")
-			} else {
-				log.WithFields(log.Fields{
-					"operator": "mobilink",
-					"status":   c.Status().String(),
-				}).Info("smpp moblink connect status")
-				mb.M.SMPPConnected.Set(1)
-			}
-		}
-	}()
-
-	go func() {
-		mb.mtReader()
-	}()
-
-	return mb
-}
-func getLogger(path string) *log.Logger {
-	handler, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0755)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"path":  path,
-			"error": err.Error(),
-		}).Fatal("cannot open file")
-	}
-	return &log.Logger{
-		Out:       handler,
-		Formatter: new(log.TextFormatter),
-		Hooks:     make(log.LevelHooks),
-		Level:     log.DebugLevel,
-	}
-}
 
 // prefix from table
 func Belongs(msisdn string) bool {
@@ -187,6 +30,7 @@ func Belongs(msisdn string) bool {
 }
 
 func (mb *Mobilink) Publish(r rec.Record) {
+	m.MobilinkRequestQueue.Inc()
 	log.WithField("rec", r).Debug("publish")
 	mb.mtChannel <- r
 }
@@ -201,6 +45,7 @@ func (mb *Mobilink) mtReader() {
 	for {
 		throttle := time.Tick(time.Millisecond * 200)
 		for record := range mb.mtChannel {
+			m.MobilinkRequestQueue.Dec()
 			log.WithFields(log.Fields{
 				"rec":      record,
 				"throttle": throttle,
@@ -208,225 +53,32 @@ func (mb *Mobilink) mtReader() {
 			<-throttle
 			var err error
 
-			record.OperatorToken, err = mb.mt(record)
+			postPaid, err := mb.balanceCheck(record.Tid, record.Msisdn)
 			if err != nil {
+				m.BalanceCheckFailed.Inc()
 				record.OperatorErr = err.Error()
+				mb.Response <- record
+				m.MobilinkResponsesQueue.Inc()
+				continue
+			}
+			if postPaid {
+				record.SubscriptionStatus = "postpaid"
+			} else {
+				if err = mb.mt(&record); err != nil {
+					m.TarificateFailed.Inc()
+					record.OperatorErr = err.Error()
+				}
 			}
 			mb.Response <- record
+			m.MobilinkResponsesQueue.Inc()
 		}
 	}
 }
-
-func (mb *Mobilink) mt(r rec.Record) (string, error) {
-	msisdn := r.Msisdn
-	tid := r.Tid
-	price := r.Price
-
-	if !Belongs(msisdn) {
-		log.WithFields(log.Fields{
-			"msisdn": msisdn,
-			"tid":    tid,
-		}).Debug("is not mobilink")
-		return "", nil
-	}
-
-	token := msisdn + time.Now().Format("20060102150405")[6:]
-	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
-
-	log.WithFields(log.Fields{
-		"token":  token,
-		"tid":    tid,
-		"msisdn": msisdn,
-		"time":   now,
-	}).Debug("prepare to send to mobilink")
-
-	requestBody := mb.conf.Connection.MT.TarifficateBody
-	requestBody = strings.Replace(requestBody, "%price%", "-"+strconv.Itoa(price), 1)
-	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
-	requestBody = strings.Replace(requestBody, "%token%", token, 1)
-	requestBody = strings.Replace(requestBody, "%time%", now, 1)
-
-	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(requestBody))
-	if err != nil {
-		log.WithFields(log.Fields{
-			"token":  token,
-			"tid":    tid,
-			"msisdn": msisdn,
-			"time":   now,
-			"error":  err.Error(),
-		}).Error("create POST req to mobilink")
-		err = fmt.Errorf("http.NewRequest: %s", err.Error())
-		return "", err
-	}
-	for k, v := range mb.conf.Connection.MT.Headers {
-		req.Header.Set(k, v)
-	}
-	req.Header.Set("Content-Length", strconv.Itoa(len(requestBody)))
-	req.Close = false
-
-	var responseCode int
-	var responseDecision string
-	// transaction log for internal logging
-	var mobilinkResponse []byte
-	begin := time.Now()
-	defer func() {
-		fields := log.Fields{
-			"token":           token,
-			"tid":             tid,
-			"msisdn":          msisdn,
-			"endpoint":        mb.conf.Connection.MT.Url,
-			"headers":         fmt.Sprintf("%#v", req.Header),
-			"reqeustBody":     requestBody,
-			"requestResponse": string(mobilinkResponse),
-			"took":            time.Since(begin),
-		}
-		if err != nil {
-			fields["error"] = err.Error()
-		}
-		log.WithFields(fields).Info("mobilink")
-	}()
-
-	// separate transaction for mobilink
-	// 1 - request body
-	mb.requestLog.WithFields(log.Fields{
-		"token":       token,
-		"tid":         tid,
-		"msisdn":      msisdn,
-		"endpoint":    mb.conf.Connection.MT.Url,
-		"headers":     fmt.Sprintf("%#v", req.Header),
-		"reqeustBody": strings.TrimSpace(requestBody),
-	}).Info("mobilink request")
-	defer func() {
-		// separate transaction for mobilink
-		// 2 - response body
-		fields := log.Fields{
-			"token":           token,
-			"tid":             tid,
-			"msisdn":          msisdn,
-			"requestResponse": strings.TrimSpace(string(mobilinkResponse)),
-			"took":            time.Since(begin),
-		}
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
-			fields["error"] = errStr
-		}
-		mb.responseLog.WithFields(fields).Println("mobilink response")
-
-		msg := transaction_log_service.OperatorTransactionLog{
-			Tid:              r.Tid,
-			Msisdn:           r.Msisdn,
-			OperatorToken:    token,
-			OperatorCode:     r.OperatorCode,
-			CountryCode:      r.CountryCode,
-			Error:            errStr,
-			Price:            r.Price,
-			ServiceId:        r.ServiceId,
-			SubscriptionId:   r.SubscriptionId,
-			CampaignId:       r.CampaignId,
-			RequestBody:      strings.TrimSpace(requestBody),
-			ResponseBody:     strings.TrimSpace(string(mobilinkResponse)),
-			ResponseDecision: responseDecision,
-			ResponseCode:     responseCode,
-		}
-		mb.transactionsLog.OperatorTransactionNotify(msg)
-
-	}()
-
-	resp, err := mb.client.Do(req)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error":  err,
-			"token":  token,
-			"tid":    tid,
-			"msisdn": msisdn,
-			"time":   now,
-		}).Error("do request to mobilink")
-		err = fmt.Errorf("client.Do: %s", err.Error())
-		return "", err
-	}
-	responseCode = resp.StatusCode
-	mobilinkResponse, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"token":  token,
-			"tid":    tid,
-			"msisdn": msisdn,
-			"time":   now,
-			"error":  err,
-		}).Error("get raw body of mobilink response")
-		err = fmt.Errorf("ioutil.ReadAll: %s", err.Error())
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var v string
-	for _, v = range mb.conf.Connection.MT.PaidBodyContains {
-		if strings.Contains(string(mobilinkResponse), v) {
-			log.WithFields(log.Fields{
-				"msisdn": msisdn,
-				"token":  token,
-				"tid":    tid,
-				"price":  price,
-			}).Info("charged")
-			responseDecision = "paid"
-			return token, nil
-		}
-	}
-	log.WithFields(log.Fields{
-		"msisdn": msisdn,
-		"tid":    tid,
-		"price":  price,
-	}).Info("charge has failed")
-
-	err = errors.New("Charge has failed")
-	responseDecision = "failed"
-	return token, err
-}
-
-func (mb *Mobilink) SMS(tid, msisdn, msg string) error {
-	shortMsg, err := mb.smpp.Submit(&smpp_client.ShortMessage{
-		Src:      mb.conf.Connection.Smpp.ShortNumber,
-		Dst:      "00" + msisdn[2:],
-		Text:     pdutext.Raw(msg),
-		Register: smpp_client.NoDeliveryReceipt,
-	})
-
-	if err == smpp_client.ErrNotConnected {
-		log.WithFields(log.Fields{
-			"msisdn": msisdn,
-			"msg":    msg,
-			"tid":    tid,
-			"error":  err.Error(),
-		}).Error("counldn't sed sms: service unavialable")
-		return fmt.Errorf("smpp.Submit: %s", err.Error())
-	}
-	if err != nil {
-		log.WithFields(log.Fields{
-			"msisdn": msisdn,
-			"msg":    msg,
-			"tid":    tid,
-			"error":  err.Error(),
-		}).Error("counldn't sed sms: bad request")
-		return fmt.Errorf("smpp.Submit: %s", err.Error())
-	}
-
-	log.WithFields(log.Fields{
-		"msisdn": msisdn,
-		"msg":    msg,
-		"tid":    tid,
-		"respid": shortMsg.RespID(),
-	}).Error("sms sent")
-	return nil
-}
-func getToken(msisdn string) string {
-	return msisdn + time.Now().Format("20060102150405")[6:]
-}
-
-func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
+func (mb *Mobilink) balanceCheck(tid, msisdn string) (bool, error) {
 	if !Belongs(msisdn) {
 		return false, nil
 	}
+	m.BalanceCheckRequestsOverall.Inc()
 
 	token := getToken(msisdn)
 	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
@@ -488,7 +140,215 @@ func (mb *Mobilink) BalanceCheck(tid, msisdn string) (bool, error) {
 	}
 	return false, nil
 }
+func (mb *Mobilink) mt(r *rec.Record) error {
+	msisdn := r.Msisdn
+	tid := r.Tid
+	price := r.Price
 
+	if !Belongs(msisdn) {
+		log.WithFields(log.Fields{
+			"msisdn": msisdn,
+			"tid":    tid,
+		}).Debug("is not mobilink")
+		return nil
+	}
+	m.TarificateRequestsOverall.Inc()
+	r.Paid = false
+	r.OperatorToken = msisdn + time.Now().Format("20060102150405")[6:]
+	now := time.Now().In(mb.location).Format("20060102T15:04:05-0700")
+
+	log.WithFields(log.Fields{
+		"token":  r.OperatorToken,
+		"tid":    tid,
+		"msisdn": msisdn,
+		"time":   now,
+	}).Debug("prepare to send to mobilink")
+
+	requestBody := mb.conf.Connection.MT.TarifficateBody
+	requestBody = strings.Replace(requestBody, "%price%", "-"+strconv.Itoa(price), 1)
+	requestBody = strings.Replace(requestBody, "%msisdn%", msisdn[2:], 1)
+	requestBody = strings.Replace(requestBody, "%token%", r.OperatorToken, 1)
+	requestBody = strings.Replace(requestBody, "%time%", now, 1)
+
+	req, err := http.NewRequest("POST", mb.conf.Connection.MT.Url, strings.NewReader(requestBody))
+	if err != nil {
+		log.WithFields(log.Fields{
+			"token":  r.OperatorToken,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err.Error(),
+		}).Error("create POST req to mobilink")
+		err = fmt.Errorf("http.NewRequest: %s", err.Error())
+		return err
+	}
+	for k, v := range mb.conf.Connection.MT.Headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Content-Length", strconv.Itoa(len(requestBody)))
+	req.Close = false
+
+	var responseCode int
+	// transaction log for internal logging
+	var mobilinkResponse []byte
+	begin := time.Now()
+	defer func() {
+		fields := log.Fields{
+			"token":           r.OperatorToken,
+			"tid":             tid,
+			"msisdn":          msisdn,
+			"endpoint":        mb.conf.Connection.MT.Url,
+			"headers":         fmt.Sprintf("%#v", req.Header),
+			"reqeustBody":     requestBody,
+			"requestResponse": string(mobilinkResponse),
+			"took":            time.Since(begin),
+		}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Info("mobilink")
+	}()
+
+	// separate transaction for mobilink
+	// 1 - request body
+	mb.requestLog.WithFields(log.Fields{
+		"token":       r.OperatorToken,
+		"tid":         tid,
+		"msisdn":      msisdn,
+		"endpoint":    mb.conf.Connection.MT.Url,
+		"headers":     fmt.Sprintf("%#v", req.Header),
+		"reqeustBody": strings.TrimSpace(requestBody),
+	}).Info("mobilink request")
+	defer func() {
+		// separate transaction for mobilink
+		// 2 - response body
+		fields := log.Fields{
+			"token":           r.OperatorToken,
+			"tid":             tid,
+			"msisdn":          msisdn,
+			"requestResponse": strings.TrimSpace(string(mobilinkResponse)),
+			"took":            time.Since(begin),
+		}
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+			fields["error"] = errStr
+		}
+		mb.responseLog.WithFields(fields).Println("mobilink response")
+
+		var responseDecision string
+		if r.Paid {
+			responseDecision = "paid"
+		} else {
+			responseDecision = "failed"
+		}
+		msg := transaction_log_service.OperatorTransactionLog{
+			Tid:              r.Tid,
+			Msisdn:           r.Msisdn,
+			OperatorToken:    r.OperatorToken,
+			OperatorCode:     r.OperatorCode,
+			CountryCode:      r.CountryCode,
+			Error:            errStr,
+			Price:            r.Price,
+			ServiceId:        r.ServiceId,
+			SubscriptionId:   r.SubscriptionId,
+			CampaignId:       r.CampaignId,
+			RequestBody:      strings.TrimSpace(requestBody),
+			ResponseBody:     strings.TrimSpace(string(mobilinkResponse)),
+			ResponseDecision: responseDecision,
+			ResponseCode:     responseCode,
+		}
+		mb.transactionsLog.OperatorTransactionNotify(msg)
+
+	}()
+
+	resp, err := mb.client.Do(req)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":  err,
+			"token":  r.OperatorToken,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+		}).Error("do request to mobilink")
+		err = fmt.Errorf("client.Do: %s", err.Error())
+		return err
+	}
+	responseCode = resp.StatusCode
+	mobilinkResponse, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"token":  r.OperatorToken,
+			"tid":    tid,
+			"msisdn": msisdn,
+			"time":   now,
+			"error":  err,
+		}).Error("get raw body of mobilink response")
+		err = fmt.Errorf("ioutil.ReadAll: %s", err.Error())
+		return err
+	}
+	defer resp.Body.Close()
+
+	var v string
+	for _, v = range mb.conf.Connection.MT.PaidBodyContains {
+		if strings.Contains(string(mobilinkResponse), v) {
+			log.WithFields(log.Fields{
+				"msisdn": msisdn,
+				"token":  r.OperatorToken,
+				"tid":    tid,
+				"price":  price,
+			}).Info("charged")
+			r.Paid = true
+			return nil
+		}
+	}
+	log.WithFields(log.Fields{
+		"msisdn": msisdn,
+		"tid":    tid,
+		"price":  price,
+	}).Info("charge has failed")
+
+	return nil
+}
+
+func (mb *Mobilink) SMS(tid, msisdn, msg string) error {
+	shortMsg, err := mb.smpp.Submit(&smpp_client.ShortMessage{
+		Src:      mb.conf.Connection.Smpp.ShortNumber,
+		Dst:      "00" + msisdn[2:],
+		Text:     pdutext.Raw(msg),
+		Register: smpp_client.NoDeliveryReceipt,
+	})
+
+	if err == smpp_client.ErrNotConnected {
+		log.WithFields(log.Fields{
+			"msisdn": msisdn,
+			"msg":    msg,
+			"tid":    tid,
+			"error":  err.Error(),
+		}).Error("counldn't sed sms: service unavialable")
+		return fmt.Errorf("smpp.Submit: %s", err.Error())
+	}
+	if err != nil {
+		log.WithFields(log.Fields{
+			"msisdn": msisdn,
+			"msg":    msg,
+			"tid":    tid,
+			"error":  err.Error(),
+		}).Error("counldn't sed sms: bad request")
+		return fmt.Errorf("smpp.Submit: %s", err.Error())
+	}
+
+	log.WithFields(log.Fields{
+		"msisdn": msisdn,
+		"msg":    msg,
+		"tid":    tid,
+		"respid": shortMsg.RespID(),
+	}).Error("sms sent")
+	return nil
+}
+func getToken(msisdn string) string {
+	return msisdn + time.Now().Format("20060102150405")[6:]
+}
 func MobilinkHandler(c *gin.Context) {
 	c.Writer.WriteHeader(200)
 	c.Writer.Write([]byte(`<value><i4>0</i4></value>`))

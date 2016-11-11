@@ -65,14 +65,13 @@ func (s *Services) Reload() error {
 	log.WithFields(log.Fields{}).Debug("services reload...")
 	begin := time.Now()
 	defer func() {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
+		fields := log.Fields{
+			"took": time.Since(begin),
 		}
-		log.WithFields(log.Fields{
-			"error": errStr,
-			"took":  time.Since(begin),
-		}).Debug("services reload")
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Debug("services reload")
 	}()
 	query := fmt.Sprintf("select "+
 		"id, "+
@@ -140,14 +139,13 @@ func (bl *BlackList) Reload() error {
 	log.WithFields(log.Fields{}).Debug("blacklist reload...")
 	begin := time.Now()
 	defer func() {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
+		fields := log.Fields{
+			"took": time.Since(begin),
 		}
-		log.WithFields(log.Fields{
-			"error": errStr,
-			"took":  time.Since(begin),
-		}).Debug("blacklist reload")
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Debug("blacklist reload")
 	}()
 
 	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.dbConf.TablePrefix)
@@ -197,14 +195,13 @@ func (pp *PostPaidList) Reload() error {
 	log.WithFields(log.Fields{}).Debug("post paid reload...")
 	begin := time.Now()
 	defer func() {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
+		fields := log.Fields{
+			"took": time.Since(begin),
 		}
-		log.WithFields(log.Fields{
-			"error": errStr,
-			"took":  time.Since(begin),
-		}).Debug("post paid reload")
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Debug("post paid reload")
 	}()
 
 	query := fmt.Sprintf("select msisdn from %smsisdn_postpaid", svc.dbConf.TablePrefix)
@@ -258,14 +255,13 @@ func (ops *Operators) Reload() error {
 	log.WithFields(log.Fields{}).Debug("operators reload...")
 	begin := time.Now()
 	defer func() {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
+		fields := log.Fields{
+			"took": time.Since(begin),
 		}
-		log.WithFields(log.Fields{
-			"error": errStr,
-			"took":  time.Since(begin),
-		}).Debug("operators reload")
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		log.WithFields(fields).Debug("operators reload")
 	}()
 
 	query := fmt.Sprintf("SELECT "+

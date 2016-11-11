@@ -64,6 +64,8 @@ func Init(
 		}
 	}()
 
+	processSubscriptions()
+	processRetries()
 	go func() {
 		for range time.Tick(time.Duration(sConf.SubscriptionsSec) * time.Second) {
 			processSubscriptions()
@@ -183,11 +185,13 @@ func buzyCheck() bool {
 	if len(svc.mobilink.Response) > 0 {
 		log.WithFields(log.Fields{
 			"responses": "mobilink",
+			"len":       len(svc.mobilink.Response),
 		}).Debug("have to process all responses")
 	}
 	if svc.mobilink.GetMTChanGap() > 0 {
 		log.WithFields(log.Fields{
 			"tarifficate": "mobilink",
+			"len":         svc.mobilink.GetMTChanGap(),
 		}).Debug("tariffications requests are still not empty")
 		return true
 	}
@@ -236,12 +240,6 @@ func smsSend(subscription rec.Record, msg string) error {
 	return nil
 }
 func handle(subscription rec.Record) error {
-	var err error
-	defer func() {
-		if err != nil {
-			m.Errors.Inc()
-		}
-	}()
 
 	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
 	logCtx.Debug("start processsing")
@@ -249,7 +247,8 @@ func handle(subscription rec.Record) error {
 	mService, ok := memServices.Map[subscription.ServiceId]
 	if !ok {
 		logCtx.Error("service not found")
-		err = fmt.Errorf("Service id %d not found", subscription.ServiceId)
+		err := fmt.Errorf("Service id %d not found", subscription.ServiceId)
+		m.Errors.Inc()
 		return err
 	}
 	logCtx.WithField("service_id", mService.Id).Debug("found service")
@@ -257,7 +256,8 @@ func handle(subscription rec.Record) error {
 	// misconfigured price
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
-		err = fmt.Errorf("Service price %d is zero or less", mService.Price)
+		err := fmt.Errorf("Service price %d is zero or less", mService.Price)
+		m.Errors.Inc()
 		return err
 	}
 	subscription.Price = 100 * int(mService.Price)
@@ -273,6 +273,7 @@ func handle(subscription rec.Record) error {
 		} else if err != nil {
 			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
 			err = fmt.Errorf("Get previous subscription: %s", err.Error())
+			m.Errors.Inc()
 			return err
 		} else {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
@@ -316,34 +317,6 @@ func handle(subscription rec.Record) error {
 		subscription.WriteSubscriptionStatus()
 		return nil
 	}
-
-	if mobilink.Belongs(subscription.Msisdn) {
-		begin := time.Now()
-		postPaid, err := svc.mobilink.BalanceCheck(subscription.Tid, subscription.Msisdn)
-		if err != nil {
-			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-				"took":  time.Since(begin),
-			}).Debug("check postpaid error")
-			err = fmt.Errorf("Postpaid number check: %s", err.Error())
-			return err
-		}
-
-		if postPaid {
-			m.PostPaid.Inc()
-			logCtx.Debug("number is postpaid")
-			if err = subscription.AddPostPaidNumber(); err != nil {
-				logCtx.WithField("error", err.Error()).Debug("add postpaid error")
-				return err
-			}
-			logCtx.Info("new postpaid number added")
-			memPostPaid.Reload()
-			subscription.SubscriptionStatus = "postpaid"
-			subscription.WriteSubscriptionStatus()
-			return nil
-		}
-	}
-
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
 		m.Pixel.Inc()
@@ -375,12 +348,28 @@ func handle(subscription rec.Record) error {
 }
 
 func handleResponse(record rec.Record) {
-	//logCtx := log.WithField("subscription", record)
+	if mobilink.Belongs(record.Msisdn) {
+		m.MobilinkResponsesQueue.Dec()
+	}
 	logCtx := log.WithFields(log.Fields{})
 	logCtx.Info("start processing response")
 
-	//
-	if len(record.OperatorToken) > 0 && record.OperatorErr == "" {
+	if record.SubscriptionStatus == "postpaid" {
+		m.PostPaid.Inc()
+		logCtx.Debug("number is postpaid")
+		if err := record.AddPostPaidNumber(); err != nil {
+			logCtx.WithField("error", err.Error()).Error("add postpaid error")
+			m.Errors.Inc()
+			return
+		}
+		logCtx.Info("new postpaid number added")
+		memPostPaid.Reload()
+		record.SubscriptionStatus = "postpaid"
+		record.WriteSubscriptionStatus()
+		return
+	}
+
+	if len(record.OperatorToken) > 0 && record.Paid {
 		m.SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"
 		if record.AttemptsCount >= 1 {
@@ -464,13 +453,14 @@ func handleResponse(record rec.Record) {
 		remove := false
 		if record.CreatedAt.Sub(now).Hours() >
 			(time.Duration(24*record.KeepDays) * time.Hour).Hours() {
+			logCtx.Info("remove retry: keep days expired")
 			remove = true
 		}
 		if record.Result == "retry_paid" {
+			logCtx.Info("remove retry: retry_paid")
 			remove = true
 		}
 		if remove {
-			logCtx.Info("remove from retries")
 			if err := record.RemoveRetry(); err != nil {
 				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
 				return

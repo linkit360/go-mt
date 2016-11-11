@@ -34,6 +34,7 @@ type Record struct {
 	OperatorName       string    `json:",omitempty"`
 	OperatorToken      string    `json:",omitempty"`
 	OperatorErr        string    `json:",omitempty"`
+	Paid               bool      `json:"paid"`
 	Price              int       `json:",omitempty"`
 	Pixel              string    `json:",omitempty"`
 	Publisher          string    `json:",omitempty"`
