@@ -78,7 +78,7 @@ func (s *Services) Reload() error {
 		"price, "+
 		"paid_hours, "+
 		"delay_hours, "+
-		"retry_days, "+
+		"keep_days, "+
 		"sms_send, "+
 		"wording "+
 		"from %sservices where status = $1",

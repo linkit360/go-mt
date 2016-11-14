@@ -12,6 +12,7 @@ var (
 	SinceSuccessPaid            prometheus.Gauge
 	MobilinkRequestQueue        prometheus.Gauge
 	MobilinkResponsesQueue      prometheus.Gauge
+	SubscriptionsCount          prometheus.Gauge
 	BalanceCheckRequestsOverall m.Gauge
 	TarificateRequestsOverall   m.Gauge
 	Errors                      m.Gauge
@@ -42,7 +43,6 @@ func Init() {
 	MobilinkResponsesQueue = newGaugeMobilinkQueues("responses", "response")
 
 	SubscriptionsCount = newGaugeCycle("subscriptions", "Subscriptions got from database")
-	RetriesCount = newGaugeCycle("retries", "Retries got from database")
 	SinceSuccessPaid = m.PrometheusGauge(
 		"",
 		"payment",

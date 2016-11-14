@@ -257,6 +257,7 @@ func (mb *Mobilink) mt(r *rec.Record) error {
 			ResponseBody:     strings.TrimSpace(string(mobilinkResponse)),
 			ResponseDecision: responseDecision,
 			ResponseCode:     responseCode,
+			SentAt:           time.Now().UTC(),
 		}
 		mb.transactionsLog.OperatorTransactionNotify(msg)
 

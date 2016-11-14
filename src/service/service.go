@@ -65,7 +65,6 @@ func Init(
 	}()
 
 	processSubscriptions()
-	processRetries()
 	go func() {
 		for range time.Tick(time.Duration(sConf.SubscriptionsSec) * time.Second) {
 			processSubscriptions()
@@ -121,7 +120,6 @@ func processRetries() {
 	log.WithFields(log.Fields{
 		"count": len(retries),
 	}).Info("retries")
-	m.RetriesCount.Set(float64(len(retries)))
 
 	begin := time.Now()
 	defer func() {
@@ -279,7 +277,7 @@ func handle(subscription rec.Record) error {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
 			paidHours := (time.Duration(mService.PaidHours) * time.Hour).Hours()
 			if sincePrevious < paidHours {
-				log.WithFields(log.Fields{
+				logCtx.WithFields(log.Fields{
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
@@ -290,7 +288,7 @@ func handle(subscription rec.Record) error {
 				subscription.WriteTransaction()
 				return nil
 			} else {
-				log.WithFields(log.Fields{
+				logCtx.WithFields(log.Fields{
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Debug("previous subscription time elapsed, proceed")
@@ -341,7 +339,7 @@ func handle(subscription rec.Record) error {
 		logCtx.Debug("sent to mobilink channel")
 		svc.mobilink.Publish(subscription)
 	default:
-		log.WithField("subscription", subscription).Error("Not applicable to any operator")
+		logCtx.WithField("subscription", subscription).Error("Not applicable to any operator")
 		return fmt.Errorf("Msisdn %s is not applicable to any operator", subscription.Msisdn)
 	}
 	return nil
@@ -351,7 +349,9 @@ func handleResponse(record rec.Record) {
 	if mobilink.Belongs(record.Msisdn) {
 		m.MobilinkResponsesQueue.Dec()
 	}
-	logCtx := log.WithFields(log.Fields{})
+	logCtx := log.WithFields(log.Fields{
+		"tid": record.Tid,
+	})
 	logCtx.Info("start processing response")
 
 	if record.SubscriptionStatus == "postpaid" {
@@ -432,6 +432,8 @@ func handleResponse(record rec.Record) {
 				}).Error("failed to write sms transaction")
 			}
 
+		} else {
+			logCtx.WithField("service id", mService.Id).Info("send sms disabled on service")
 		}
 
 		logCtx.Info("add to retries")
@@ -466,7 +468,6 @@ func handleResponse(record rec.Record) {
 				return
 			}
 		} else {
-			logCtx.Info("touch retry..")
 			if err := record.TouchRetry(); err != nil {
 				logCtx.WithField("error", err.Error()).Error("touch retry failed")
 			}

@@ -71,6 +71,7 @@ CREATE TYPE transaction_result AS ENUM ('failed', 'sms', 'paid', 'retry_failed',
 CREATE TABLE public.xmp_transactions (
     id serial,
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+    tid CHARACTER VARYING(127) NOT NULL DEFAULT '',
     msisdn CHARACTER VARYING(32),
     country_code INTEGER,
     id_service INTEGER,

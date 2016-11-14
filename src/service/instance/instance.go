@@ -34,7 +34,7 @@ type Record struct {
 	OperatorName       string    `json:",omitempty"`
 	OperatorToken      string    `json:",omitempty"`
 	OperatorErr        string    `json:",omitempty"`
-	Paid               bool      `json:"paid"`
+	Paid               bool      `json:",omitempty"`
 	Price              int       `json:",omitempty"`
 	Pixel              string    `json:",omitempty"`
 	Publisher          string    `json:",omitempty"`
@@ -219,11 +219,13 @@ func (t Record) WriteTransaction() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
-			"tid":  t.Tid,
-			"took": time.Since(begin),
+			"tid":    t.Tid,
+			"took":   time.Since(begin),
+			"result": t.Result,
 		}).Debug("write transaction")
 	}()
 	query := fmt.Sprintf("INSERT INTO %stransactions ("+
+		"tid, "+
 		"msisdn, "+
 		"result, "+
 		"operator_code, "+
@@ -233,13 +235,14 @@ func (t Record) WriteTransaction() error {
 		"id_campaign, "+
 		"operator_token, "+
 		"price "+
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
 		conf.TablePrefix)
 
 	mutTransactions.Lock()
 	defer mutTransactions.Unlock()
 	_, err := dbConn.Exec(
 		query,
+		t.Tid,
 		t.Msisdn,
 		t.Result,
 		t.OperatorCode,
@@ -265,8 +268,9 @@ func (s Record) WriteSubscriptionStatus() error {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
-			"tid":  s.Tid,
-			"took": time.Since(begin),
+			"tid":    s.Tid,
+			"took":   time.Since(begin),
+			"status": s.SubscriptionStatus,
 		}).Debug("write subscription status")
 	}()
 	query := fmt.Sprintf("UPDATE %ssubscriptions SET "+
