@@ -136,7 +136,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 		"id_campaign "+
 		"FROM %sretries "+
 		"WHERE (CURRENT_TIMESTAMP - delay_hours * INTERVAL '1 hour' ) > last_pay_attempt_at "+
-		"ORDER BY last_pay_attempt_at DESC LIMIT %s", // get the last touched
+		"ORDER BY last_pay_attempt_at ASC LIMIT %s", // get the last touched
 		conf.TablePrefix,
 		strconv.Itoa(batchLimit),
 	)
