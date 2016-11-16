@@ -148,7 +148,10 @@ func (bl *BlackList) Reload() error {
 		log.WithFields(fields).Debug("blacklist reload")
 	}()
 
-	query := fmt.Sprintf("select msisdn from %smsisdn_blacklist", svc.dbConf.TablePrefix)
+	query := fmt.Sprintf("SELECT "+
+		"msisdn "+
+		"FROM %smsisdn_blacklist",
+		svc.dbConf.TablePrefix)
 	var rows *sql.Rows
 	rows, err = dbConn.Query(query)
 	if err != nil {
@@ -235,22 +238,27 @@ func (pp *PostPaidList) Reload() error {
 }
 
 // Tasks:
-// Keep in memory all active blacklisted msisdn-s
-// Reload when changes to service are done
+// Keep in memory all operators names and configuration
+// Reload when changes to operators table are done
 var memOperators = &Operators{}
 
 type Operators struct {
 	sync.RWMutex
-	Map map[string]Operator
+	ByName map[string]Operator
+	ByCode map[int64]string
 }
 
 type Operator struct {
 	Name     string
 	Rps      int
 	Settings string
+	Code     int64
 }
 
 func (ops *Operators) Reload() error {
+	ops.Lock()
+	defer ops.Unlock()
+
 	var err error
 	log.WithFields(log.Fields{}).Debug("operators reload...")
 	begin := time.Now()
@@ -296,12 +304,14 @@ func (ops *Operators) Reload() error {
 		return err
 	}
 
-	ops.Lock()
-	defer ops.Unlock()
-
-	ops.Map = make(map[string]Operator, len(operators))
+	ops.ByName = make(map[string]Operator, len(operators))
 	for _, op := range operators {
-		ops.Map[op.Name] = op
+		ops.ByName[op.Name] = op
+	}
+
+	ops.ByCode = make(map[int64]Operator, len(operators))
+	for _, op := range operators {
+		ops.ByName[op.Code] = op
 	}
 	return nil
 }

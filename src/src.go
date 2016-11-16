@@ -23,8 +23,7 @@ func RunServer() {
 	service.Init(
 		appConfig.Service,
 		appConfig.DbConf,
-		appConfig.Notifier,
-		appConfig.Mobilink,
+		appConfig.Publisher,
 	)
 
 	nuCPU := runtime.NumCPU()
@@ -35,9 +34,6 @@ func RunServer() {
 
 	service.AddCQRHandlers(r)
 	metrics.AddHandler(r)
-
-	rgMobilink := r.Group("/mobilink_handler")
-	rgMobilink.POST("", mobilink.MobilinkHandler)
 
 	r.Run(":" + appConfig.Server.Port)
 	log.WithField("port", appConfig.Server.Port).Info("mt init")

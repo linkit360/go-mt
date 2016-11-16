@@ -10,6 +10,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/vostrok/db"
+	m "github.com/vostrok/mt_manager/src/service/metrics"
 )
 
 var mutSubscriptions sync.RWMutex
@@ -38,6 +39,7 @@ type Record struct {
 	Price              int       `json:",omitempty"`
 	Pixel              string    `json:",omitempty"`
 	Publisher          string    `json:",omitempty"`
+	SMSText            string    `json:",omitempty"`
 }
 
 var dbConn *sql.DB
@@ -76,6 +78,7 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 	)
 	rows, err := dbConn.Query(query)
 	if err != nil {
+		m.DBErrors.Inc()
 		return subscr, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
 	defer rows.Close()
@@ -95,11 +98,13 @@ func GetNotPaidSubscriptions(batchLimit int) ([]Record, error) {
 			&record.CountryCode,
 			&record.AttemptsCount,
 		); err != nil {
+			m.DBErrors.Inc()
 			return subscr, err
 		}
 		subscr = append(subscr, record)
 	}
 	if rows.Err() != nil {
+		m.DBErrors.Inc()
 		return subscr, fmt.Errorf("row.Err: %s", err.Error())
 	}
 
@@ -137,6 +142,7 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 	)
 	rows, err := dbConn.Query(query)
 	if err != nil {
+		m.DBErrors.Inc()
 		return retries, fmt.Errorf("db.Query: %s, query: %s", err.Error(), query)
 	}
 	defer rows.Close()
@@ -159,12 +165,14 @@ func GetRetryTransactions(batchLimit int) ([]Record, error) {
 			&record.SubscriptionId,
 			&record.CampaignId,
 		); err != nil {
+			m.DBErrors.Inc()
 			return retries, fmt.Errorf("Rows.Next: %s", err.Error())
 		}
 
 		retries = append(retries, record)
 	}
 	if rows.Err() != nil {
+		m.DBErrors.Inc()
 		return retries, fmt.Errorf("GetRetries RowsError: %s", err.Error())
 	}
 	return retries, nil
@@ -211,6 +219,7 @@ func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
 		if err == sql.ErrNoRows {
 			return p, err
 		}
+		m.DBErrors.Inc()
 		return p, fmt.Errorf("db.QueryRow: %s, query: %s", err.Error(), query)
 	}
 	return p, nil
@@ -254,6 +263,7 @@ func (t Record) WriteTransaction() error {
 		int(t.Price),
 	)
 	if err != nil {
+		m.DBErrors.Inc()
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
@@ -289,6 +299,7 @@ func (s Record) WriteSubscriptionStatus() error {
 		s.SubscriptionId,
 	)
 	if err != nil {
+		m.DBErrors.Inc()
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
@@ -311,6 +322,7 @@ func (r Record) RemoveRetry() error {
 
 	_, err := dbConn.Exec(query, r.RetryId)
 	if err != nil {
+		m.DBErrors.Inc()
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
@@ -338,6 +350,7 @@ func (r Record) TouchRetry() error {
 
 	_, err := dbConn.Exec(query, lastPayAttemptAt, r.RetryId)
 	if err != nil {
+		m.DBErrors.Inc()
 		log.WithFields(log.Fields{
 			"error ": err.Error(),
 			"query":  query,
@@ -390,6 +403,7 @@ func (r Record) StartRetry() error {
 		&r.SubscriptionId,
 		&r.CampaignId)
 	if err != nil {
+		m.DBErrors.Inc()
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 	return nil
@@ -408,6 +422,7 @@ func (r Record) AddBlacklistedNumber() error {
 	query := fmt.Sprintf("INSERT INTO  %smsisdn_blacklist ( msisdn ) VALUES ($1)",
 		conf.TablePrefix)
 	if _, err := dbConn.Exec(query, &r.Msisdn); err != nil {
+		m.DBErrors.Inc()
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 	return nil
@@ -423,9 +438,9 @@ func (r Record) AddPostPaidNumber() error {
 		}).Debug("add postpaid")
 	}()
 
-	query := fmt.Sprintf("INSERT INTO  %smsisdn_postpaid ( msisdn ) VALUES ($1)",
-		conf.TablePrefix)
+	query := fmt.Sprintf("INSERT INTO %smsisdn_postpaid ( msisdn ) VALUES ($1)", conf.TablePrefix)
 	if _, err := dbConn.Exec(query, &r.Msisdn); err != nil {
+		m.DBErrors.Inc()
 		return fmt.Errorf("db.Exec: %s, query: %s", err.Error(), query)
 	}
 	return nil

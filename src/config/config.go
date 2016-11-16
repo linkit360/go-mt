@@ -10,20 +10,19 @@ import (
 
 	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
-	"github.com/vostrok/mt_manager/src/service/mobilink"
-	"github.com/vostrok/mt_manager/src/service/notifier"
+	"github.com/vostrok/rabbit"
 )
 
 type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	Name     string                  `yaml:"name"`
-	Server   ServerConfig            `yaml:"server"`
-	Service  service.MTServiceConfig `yaml:"service"`
-	DbConf   db.DataBaseConfig       `yaml:"db"`
-	Notifier notifier.NotifierConfig `yaml:"notifier"`
-	Mobilink mobilink.Config         `yaml:"mobilink"`
+	Name      string                  `yaml:"name"`
+	Server    ServerConfig            `yaml:"server"`
+	Service   service.MTServiceConfig `yaml:"service"`
+	DbConf    db.DataBaseConfig       `yaml:"db"`
+	Publisher rabbit.NotifierConfig   `yaml:"publisher"`
+	Consumer  rabbit.ConsumerConfig   `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {
@@ -44,12 +43,19 @@ func LoadConfig() AppConfig {
 	}
 
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)
-	appConfig.Notifier.Rbmq.Conn.Host = envString("RBMQ_HOST", appConfig.Notifier.Rbmq.Conn.Host)
+	appConfig.Publisher.Conn.Host = envString("RBMQ_HOST", appConfig.Publisher.Conn.Host)
+	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)
 
-	appConfig.Mobilink.TransactionLog.ResponseLogPath =
-		envString("MOBILINK_RESPONSE_LOG", appConfig.Mobilink.TransactionLog.ResponseLogPath)
-	appConfig.Mobilink.TransactionLog.RequestLogPath =
-		envString("MOBILINK_REQUEST_LOG", appConfig.Mobilink.TransactionLog.RequestLogPath)
+	appConfig.Service.Queues.Operator = make(map[string]service.OperatorQueueConfig, len(appConfig.Service.Operators))
+	for operatorName, v := range appConfig.Service.Operators {
+		name := strings.ToLower(v.Name)
+		appConfig.Service.Queues.Operator[operatorName] = service.OperatorQueueConfig{
+			NewSubscription: name + "_new_subscritpions",
+			Requests:        name + "_requests",
+			Responses:       name + "_responses",
+			SMS:             name + "_sms",
+		}
+	}
 
 	log.WithField("config", appConfig).Info("Config loaded")
 	return appConfig
@@ -61,4 +67,24 @@ func envString(env, fallback string) string {
 		return fallback
 	}
 	return e
+}
+
+type OperatorQueueConfig struct {
+	In  string `yaml:"-"`
+	Out string `yaml:"-"`
+}
+type QueuesConfig struct {
+	Pixels   string                         `default:"pixels" yaml:"pixels"`
+	Operator map[string]OperatorQueueConfig `yaml:"-"`
+}
+type OperatorConfig struct {
+	Name           string `yaml:"name"`
+	RetriesEnabled bool   `yaml:"retries_enabled"`
+}
+type MTServiceConfig struct {
+	RetrySec     int              `default:"600" yaml:"retry_period"`
+	RetryCount   int              `default:"600" yaml:"retry_count"`
+	ThreadsCount int              `default:"1" yaml:"threads_count"`
+	Queues       QueuesConfig     `yaml:"queues"`
+	Operators    []OperatorConfig `yaml:"operators"`
 }
