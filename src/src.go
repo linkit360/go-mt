@@ -13,7 +13,6 @@ import (
 	"github.com/vostrok/metrics"
 	"github.com/vostrok/mt_manager/src/config"
 	"github.com/vostrok/mt_manager/src/service"
-	"github.com/vostrok/mt_manager/src/service/mobilink"
 )
 
 func RunServer() {
@@ -24,6 +23,7 @@ func RunServer() {
 		appConfig.Service,
 		appConfig.DbConf,
 		appConfig.Publisher,
+		appConfig.Consumer,
 	)
 
 	nuCPU := runtime.NumCPU()

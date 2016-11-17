@@ -47,9 +47,9 @@ func LoadConfig() AppConfig {
 	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)
 
 	appConfig.Service.Queues.Operator = make(map[string]service.OperatorQueueConfig, len(appConfig.Service.Operators))
-	for operatorName, v := range appConfig.Service.Operators {
-		name := strings.ToLower(v.Name)
-		appConfig.Service.Queues.Operator[operatorName] = service.OperatorQueueConfig{
+	for _, operator := range appConfig.Service.Operators {
+		name := strings.ToLower(operator.Name)
+		appConfig.Service.Queues.Operator[name] = service.OperatorQueueConfig{
 			NewSubscription: name + "_new_subscritpions",
 			Requests:        name + "_requests",
 			Responses:       name + "_responses",

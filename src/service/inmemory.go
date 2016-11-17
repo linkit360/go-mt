@@ -81,7 +81,8 @@ func (s *Services) Reload() error {
 		"keep_days, "+
 		"sms_send, "+
 		"wording "+
-		"from %sservices where status = $1",
+		"FROM %sservices"+
+		"WHERE status = $1",
 		svc.dbConf.TablePrefix)
 	rows, err := dbConn.Query(query, ACTIVE_STATUS)
 	if err != nil {
@@ -245,7 +246,7 @@ var memOperators = &Operators{}
 type Operators struct {
 	sync.RWMutex
 	ByName map[string]Operator
-	ByCode map[int64]string
+	ByCode map[int64]Operator
 }
 
 type Operator struct {
@@ -311,7 +312,7 @@ func (ops *Operators) Reload() error {
 
 	ops.ByCode = make(map[int64]Operator, len(operators))
 	for _, op := range operators {
-		ops.ByName[op.Code] = op
+		ops.ByCode[op.Code] = op
 	}
 	return nil
 }

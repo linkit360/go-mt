@@ -11,6 +11,8 @@ import (
 var (
 	SinceSuccessPaid          prometheus.Gauge
 	TarificateRequestsOverall m.Gauge
+	OperatorNotEnabled        m.Gauge
+	OperatorNotApplicable     m.Gauge
 	Errors                    m.Gauge
 	DBErrors                  m.Gauge
 	TarificateFailed          m.Gauge
@@ -26,7 +28,7 @@ var (
 	ResponseSuccess           m.Gauge
 )
 
-func newGaugeResponse(name, help string) prometheus.Gauge {
+func newGaugeResponse(name, help string) m.Gauge {
 	return m.NewGaugeMetric("response", name, "response "+help)
 }
 func newGaugeNotPaid(name, help string) m.Gauge {
@@ -35,7 +37,6 @@ func newGaugeNotPaid(name, help string) m.Gauge {
 func newGaugeOperaor(name, help string) m.Gauge {
 	return m.NewGaugeMetric("operator", name, "operator "+help)
 }
-
 func newGaugeSubscritpions(name, help string) m.Gauge {
 	return m.NewGaugeMetric("subscritpions", name, "subscritpions "+help)
 }
@@ -52,8 +53,10 @@ func Init() {
 	DBErrors = newGaugeNotPaid("db_errors", "DB errors pverall mt_manager")
 
 	TarificateFailed = newGaugeNotPaid("tarificate_falied", "Tariffication attempt errors")
-
 	TarificateRequestsOverall = newGaugeOperaor("tarifficate_request", "tarifficate request")
+	OperatorNotEnabled = newGaugeOperaor("not_enabled", "operator is not enabled in config")
+	OperatorNotApplicable = newGaugeOperaor("not_applicable", "there is no such operator in database")
+
 	PostPaid = newGaugeNotPaid("postpaid", "Postpaid count")
 	Rejected = newGaugeNotPaid("rejected", "Rejected count")
 	BlackListed = newGaugeNotPaid("blacklisted", "Blacklisted count")
@@ -73,6 +76,8 @@ func Init() {
 		for range time.Tick(time.Minute) {
 			TarificateFailed.Update()
 			TarificateRequestsOverall.Update()
+			OperatorNotEnabled.Update()
+			OperatorNotApplicable.Update()
 			Errors.Update()
 			DBErrors.Update()
 			PostPaid.Update()

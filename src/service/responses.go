@@ -53,29 +53,34 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 }
 
 func smsSend(record rec.Record, msg string) error {
-	operatorName, ok := memOperators.ByCode[record.OperatorCode]
+	operator, ok := memOperators.ByCode[record.OperatorCode]
 	if !ok {
+		m.OperatorNotApplicable.Inc()
+
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
 			"msisdn": record.Msisdn,
 		}).Debug("SMS send: not applicable to any operator")
 		return fmt.Errorf("Code %s is not applicable to any operator", record.OperatorCode)
 	}
-	operatorName = strings.ToLower(operatorName)
+	operatorName := strings.ToLower(operator.Name)
 	queue, ok := svc.conf.Queues.Operator[operatorName]
 	if !ok {
+		m.OperatorNotEnabled.Inc()
+
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
 			"msisdn": record.Msisdn,
 		}).Debug("SMS send: not enabled in mt_manager")
 		return fmt.Errorf("Name %s is not enabled", operatorName)
 	}
-	if err := notifyOperatorRequest(queue.SMS, "sms_send", record); err != nil {
+	record.SMSText = msg
+	if err := notifyOperatorRequest(queue.SMS, "send", record); err != nil {
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
 			"msisdn": record.Msisdn,
-			"error", err.Error(),
+			"error":  err.Error(),
 		}).Error("Cannot send to operator SMS queue")
 		return err
 	}
@@ -163,7 +168,6 @@ func handleResponse(record rec.Record) error {
 			smsTranasction.Result = "sms"
 			err := smsSend(record, mService.SMSNotPaidText)
 			if err != nil {
-				smsTranasction.OperatorErr = fmt.Errorf("SMS Send: %s", err.Error()).Error()
 				logCtx.WithFields(log.Fields{
 					"error": err.Error(),
 				}).Error("sms send")

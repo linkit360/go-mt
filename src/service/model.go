@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
@@ -21,7 +20,7 @@ func Init(
 	sConf MTServiceConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf rabbit.NotifierConfig,
-	consumerConfig rabbit.ConnectionConfig,
+	consumerConfig rabbit.ConsumerConfig,
 
 ) {
 	log.SetLevel(log.DebugLevel)
@@ -94,8 +93,8 @@ type MTService struct {
 	operatorTarifficateResponsesChan map[string]<-chan amqp_driver.Delivery
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
-	publisher                        rabbit.Notifier
-	consumer                         rabbit.Consumer
+	publisher                        *rabbit.Notifier
+	consumer                         *rabbit.Consumer
 }
 type OperatorQueueConfig struct {
 	NewSubscription string `yaml:"-"`

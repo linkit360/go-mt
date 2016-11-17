@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -15,9 +16,7 @@ import (
 
 	rec "github.com/vostrok/mt_manager/src/service/instance"
 	m "github.com/vostrok/mt_manager/src/service/metrics"
-	mobilink_api "github.com/vostrok/operator/pk/mobilink/src/api"
 	pixels "github.com/vostrok/pixels/src/notifier"
-	"strings"
 )
 
 type EventNotifyTarifficate struct {
@@ -39,7 +38,7 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 				"error":       err.Error(),
 				"msg":         "dropped",
 				"tarifficate": string(msg.Body),
-			}).Error("consume from " + svc.conf.Queues.Operator)
+			}).Error("consume")
 			msg.Ack(false)
 			continue
 		}
@@ -152,7 +151,7 @@ func handle(subscription rec.Record) error {
 	// give them content, and skip tariffication
 	if mService.PaidHours > 0 && subscription.AttemptsCount == 0 {
 		logCtx.WithField("paidHours", mService.PaidHours).Debug("service paid hours > 0")
-		previous, err := subscription.GetPreviousSubscription()
+		previous, err := subscription.GetPreviousSubscription(mService.PaidHours)
 		if err == sql.ErrNoRows {
 			logCtx.Debug("no previous subscription found")
 			err = nil
@@ -222,12 +221,12 @@ func handle(subscription rec.Record) error {
 	}
 
 	logCtx.Debug("send to operator")
-	operatorName, ok := memOperators.ByCode[subscription.OperatorCode]
+	operator, ok := memOperators.ByCode[subscription.OperatorCode]
 	if !ok {
 		logCtx.Debug("SMS send: not applicable to any operator")
 		return fmt.Errorf("Code %s is not applicable to any operator", subscription.OperatorCode)
 	}
-	operatorName = strings.ToLower(operatorName)
+	operatorName := strings.ToLower(operator.Name)
 	queue, ok := svc.conf.Queues.Operator[operatorName]
 	if !ok {
 		logCtx.Debug("SMS send: not enabled in mt_manager")

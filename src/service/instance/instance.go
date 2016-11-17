@@ -183,25 +183,27 @@ type PreviuosSubscription struct {
 	CreatedAt time.Time
 }
 
-func (t Record) GetPreviousSubscription() (PreviuosSubscription, error) {
+func (t Record) GetPreviousSubscription(paidHours int) (PreviuosSubscription, error) {
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
-			"tid":  t.Tid,
-			"took": time.Since(begin),
+			"tid":       t.Tid,
+			"paidHours": paidHours,
+			"took":      time.Since(begin),
 		}).Debug("get previous subscription")
 	}()
 
-	// if the user get's content twice in a second period
-	// then we could handle both of them in sequesnce
-	// then to process, we should get really previous - before this one
+	// todo: check: previous subscription for the day,
+	// todo: not for continuously getting the content
+	// get the very old first, but not elder than paidHours ago
 	query := fmt.Sprintf("SELECT "+
 		"id, "+
 		"created_at "+
 		"FROM %ssubscriptions "+
 		"WHERE id < $1 AND "+
-		" msisdn = $2 AND id_service = $3 "+
-		"ORDER BY created_at DESC LIMIT 1",
+		"msisdn = $2 AND id_service = $3 AND "+
+		"(CURRENT_TIMESTAMP - "+strconv.Itoa(paidHours)+" * INTERVAL '1 hour' ) < created_at "+
+		"ORDER BY created_at ASC LIMIT 1",
 		conf.TablePrefix)
 
 	mutSubscriptions.Lock()
