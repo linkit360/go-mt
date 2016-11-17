@@ -81,7 +81,7 @@ func (s *Services) Reload() error {
 		"keep_days, "+
 		"sms_send, "+
 		"wording "+
-		"FROM %sservices"+
+		"FROM %sservices "+
 		"WHERE status = $1",
 		svc.dbConf.TablePrefix)
 	rows, err := dbConn.Query(query, ACTIVE_STATUS)

@@ -53,6 +53,7 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 }
 
 func smsSend(record rec.Record, msg string) error {
+	// todo: rpc service?
 	operator, ok := memOperators.ByCode[record.OperatorCode]
 	if !ok {
 		m.OperatorNotApplicable.Inc()
@@ -64,7 +65,7 @@ func smsSend(record rec.Record, msg string) error {
 		return fmt.Errorf("Code %s is not applicable to any operator", record.OperatorCode)
 	}
 	operatorName := strings.ToLower(operator.Name)
-	queue, ok := svc.conf.Queues.Operator[operatorName]
+	queue, ok := svc.conf.QueueOperators[operatorName]
 	if !ok {
 		m.OperatorNotEnabled.Inc()
 

@@ -1,8 +1,5 @@
 package service
 
-// here are functions to sent tarifficate requests to operator
-// retries and subscritpions
-//
 import (
 	"database/sql"
 	"encoding/json"
@@ -18,6 +15,9 @@ import (
 	m "github.com/vostrok/mt_manager/src/service/metrics"
 	pixels "github.com/vostrok/pixels/src/notifier"
 )
+
+// here are functions to sent tarifficate requests to operator
+// retries and subscritpions
 
 type EventNotifyTarifficate struct {
 	EventName string     `json:"event_name"`
@@ -227,7 +227,7 @@ func handle(subscription rec.Record) error {
 		return fmt.Errorf("Code %s is not applicable to any operator", subscription.OperatorCode)
 	}
 	operatorName := strings.ToLower(operator.Name)
-	queue, ok := svc.conf.Queues.Operator[operatorName]
+	queue, ok := svc.conf.QueueOperators[operatorName]
 	if !ok {
 		logCtx.Debug("SMS send: not enabled in mt_manager")
 		return fmt.Errorf("Name %s is not enabled", operatorName)

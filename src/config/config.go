@@ -11,18 +11,21 @@ import (
 	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/rabbit"
+	"github.com/vostrok/utils/config"
 )
 
 type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	Name      string                  `yaml:"name"`
-	Server    ServerConfig            `yaml:"server"`
-	Service   service.MTServiceConfig `yaml:"service"`
-	DbConf    db.DataBaseConfig       `yaml:"db"`
-	Publisher rabbit.NotifierConfig   `yaml:"publisher"`
-	Consumer  rabbit.ConsumerConfig   `yaml:"consumer"`
+	Name      string                                `yaml:"name"`
+	Server    ServerConfig                          `yaml:"server"`
+	Service   service.MTServiceConfig               `yaml:"service"`
+	DbConf    db.DataBaseConfig                     `yaml:"db"`
+	Publisher rabbit.NotifierConfig                 `yaml:"publisher"`
+	Consumer  rabbit.ConsumerConfig                 `yaml:"consumer"`
+	Operators []config.OperatorConfig               `yaml:"operators"`
+	Queues    map[string]config.OperatorQueueConfig `yaml:"-"`
 }
 
 func LoadConfig() AppConfig {
@@ -46,16 +49,7 @@ func LoadConfig() AppConfig {
 	appConfig.Publisher.Conn.Host = envString("RBMQ_HOST", appConfig.Publisher.Conn.Host)
 	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)
 
-	appConfig.Service.Queues.Operator = make(map[string]service.OperatorQueueConfig, len(appConfig.Service.Operators))
-	for _, operator := range appConfig.Service.Operators {
-		name := strings.ToLower(operator.Name)
-		appConfig.Service.Queues.Operator[name] = service.OperatorQueueConfig{
-			NewSubscription: name + "_new_subscritpions",
-			Requests:        name + "_requests",
-			Responses:       name + "_responses",
-			SMS:             name + "_sms",
-		}
-	}
+	appConfig.Queues = config.GetOperatorsQueue(appConfig.Operators)
 
 	log.WithField("config", appConfig).Info("Config loaded")
 	return appConfig

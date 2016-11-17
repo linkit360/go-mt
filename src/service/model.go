@@ -12,12 +12,17 @@ import (
 	m "github.com/vostrok/mt_manager/src/service/metrics"
 	pixels "github.com/vostrok/pixels/src/notifier"
 	"github.com/vostrok/rabbit"
+	queue_config "github.com/vostrok/utils/config"
 )
 
+// queues:
+// in: new subscription, reponses
+// out: pixels, requests, send_sms
 var svc MTService
 
 func Init(
 	sConf MTServiceConfig,
+	queueOperators map[string]queue_config.OperatorQueueConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf rabbit.NotifierConfig,
 	consumerConfig rabbit.ConsumerConfig,
@@ -27,6 +32,7 @@ func Init(
 
 	svc.conf = sConf
 	svc.dbConf = dbConf
+	svc.conf.QueueOperators = queueOperators
 	rec.Init(dbConf)
 
 	m.Init()
@@ -46,9 +52,7 @@ func Init(
 		log.Fatal("rbmq consumer connect:", err.Error())
 	}
 
-	// handle operators responses
-	for operatorName, queue := range sConf.Queues.Operator {
-
+	for operatorName, queue := range queueOperators {
 		// queue for new subscritpions: asap tarifficate
 		log.Info("initialising operator " + operatorName)
 		var err error
@@ -67,6 +71,7 @@ func Init(
 			queue.NewSubscription,
 			queue.NewSubscription,
 		)
+		log.Info(queue.NewSubscription + " consume queue init done")
 
 		// queue for responses
 		svc.operatorTarifficateResponsesChan[operatorName], err =
@@ -84,7 +89,7 @@ func Init(
 			queue.Responses,
 			queue.Responses,
 		)
-
+		log.Info(queue.Responses + " consume queue init done")
 	}
 }
 
@@ -103,19 +108,18 @@ type OperatorQueueConfig struct {
 	SMS             string `yaml:"-"`
 }
 type QueuesConfig struct {
-	Pixels   string                         `default:"pixels" yaml:"pixels"`
-	Operator map[string]OperatorQueueConfig `yaml:"-"`
+	Pixels string `default:"pixels" yaml:"pixels"`
 }
 type OperatorConfig struct {
 	Name           string `yaml:"name"`
 	RetriesEnabled bool   `yaml:"retries_enabled"`
 }
 type MTServiceConfig struct {
-	RetrySec     int              `default:"600" yaml:"retry_period"`
-	RetryCount   int              `default:"600" yaml:"retry_count"`
-	ThreadsCount int              `default:"1" yaml:"threads_count"`
-	Queues       QueuesConfig     `yaml:"queues"`
-	Operators    []OperatorConfig `yaml:"operators"`
+	RetrySec       int                                         `default:"600" yaml:"retry_period"`
+	RetryCount     int                                         `default:"600" yaml:"retry_count"`
+	ThreadsCount   int                                         `default:"1" yaml:"threads_count"`
+	Queues         QueuesConfig                                `yaml:"queues"`
+	QueueOperators map[string]queue_config.OperatorQueueConfig `yaml:"-"`
 }
 
 func notifyPixel(msg pixels.Pixel) error {
