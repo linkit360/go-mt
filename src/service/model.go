@@ -16,7 +16,7 @@ import (
 )
 
 // queues:
-// in: new subscription, reponses
+// in: new subscription, reponses, (?sms_responses)
 // out: pixels, requests, send_sms
 var svc MTService
 
@@ -44,20 +44,22 @@ func Init(
 	}
 	log.Info("inmemory tables init ok")
 
-	svc.newSubscriptionsChan = make(map[string]<-chan amqp_driver.Delivery)
-	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery)
 	// process consumer
 	svc.consumer = rabbit.NewConsumer(consumerConfig)
 	if err := svc.consumer.Connect(); err != nil {
 		log.Fatal("rbmq consumer connect:", err.Error())
 	}
 
+	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery)
+	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery)
 	for operatorName, queue := range queueOperators {
-		// queue for new subscritpions: asap tarifficate
+		// queue for mo tarifficate requests
 		log.Info("initialising operator " + operatorName)
 		var err error
-		svc.newSubscriptionsChan[operatorName], err =
-			svc.consumer.AnnounceQueue(queue.NewSubscription, queue.NewSubscription)
+		svc.MOTarifficateRequestsChan[operatorName], err =
+			svc.consumer.AnnounceQueue(
+				queue.MOTarifficate,
+				queue.MOTarifficate)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"queue": queue.NewSubscription,
@@ -65,13 +67,13 @@ func Init(
 			}).Fatal("rbmq consumer: AnnounceQueue")
 		}
 		go svc.consumer.Handle(
-			svc.newSubscriptionsChan[operatorName],
+			svc.MOTarifficateRequestsChan[operatorName],
 			processSubscriptions,
 			sConf.ThreadsCount,
-			queue.NewSubscription,
-			queue.NewSubscription,
+			queue.MOTarifficate,
+			queue.MOTarifficate,
 		)
-		log.Info(queue.NewSubscription + " consume queue init done")
+		log.Info(queue.MOTarifficate + " consume queue init done")
 
 		// queue for responses
 		svc.operatorTarifficateResponsesChan[operatorName], err =
@@ -94,7 +96,7 @@ func Init(
 }
 
 type MTService struct {
-	newSubscriptionsChan             map[string]<-chan amqp_driver.Delivery
+	MOTarifficateRequestsChan        map[string]<-chan amqp_driver.Delivery
 	operatorTarifficateResponsesChan map[string]<-chan amqp_driver.Delivery
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
@@ -155,10 +157,10 @@ func notifyOperatorRequest(queue, eventName string, msg interface{}) error {
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 	log.WithFields(log.Fields{
+		"data":  fmt.Sprintf("%#v", msg),
 		"queue": queue,
 		"event": eventName,
-		"data":  fmt.Sprintf("%#v", msg),
-	}).Debug("prepare to send in queue")
+	}).Debug("prepare to send")
 	svc.publisher.Publish(rabbit.AMQPMessage{queue, body})
 	return nil
 }

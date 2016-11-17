@@ -8,6 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
+	"fmt"
 	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/rabbit"
@@ -51,7 +52,7 @@ func LoadConfig() AppConfig {
 
 	appConfig.Queues = config.GetOperatorsQueue(appConfig.Operators)
 
-	log.WithField("config", appConfig).Info("Config loaded")
+	log.WithField("config", fmt.Sprintf("%#v", appConfig)).Info("Config loaded")
 	return appConfig
 }
 

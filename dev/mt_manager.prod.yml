@@ -3,21 +3,17 @@ name: mumbai_mt_manager
 server:
   port: 50305
 
-operators:
-  - name: mobilink
-    retries_enabled: true
-
-  - name: yondu
-    retries_enabled: false
-
-  - name: zong
-    retries_enabled: true
-
 service:
   retry_period: 10
   retry_count: 500
   tables:
   - subscriptions
+  queues:
+    pixels: pixels
+
+operators:
+- name: mobilink
+  retries_enabled: true
 
 db:
   conn_ttl: -1

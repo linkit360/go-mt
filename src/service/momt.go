@@ -49,12 +49,12 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 			} else {
 				m.SubscritpionsSent.Inc()
 			}
+			msg.Ack(false)
 		}(e.EventData)
 	}
 }
 
 func processRetries() {
-
 	retries, err := rec.GetRetryTransactions(svc.conf.RetryCount)
 	if err != nil {
 		log.WithFields(log.Fields{

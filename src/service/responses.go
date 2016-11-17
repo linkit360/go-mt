@@ -48,6 +48,7 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 			} else {
 				m.ResponseSuccess.Inc()
 			}
+			msg.Ack(false)
 		}(e.EventData)
 	}
 }

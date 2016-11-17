@@ -12,16 +12,12 @@ service:
   queues:
     pixels: pixels
 
-  operators:
-    - name: mobilink
-      retries_enabled: true
-
-    - name: yondu
-      retries_enabled: false
-
-    - name: zong
-      retries_enabled: true
-
+operators:
+- name: mobilink
+  retries_enabled: true
+#
+#    - name: yondu
+#      retries_enabled: false
 db:
   conn_ttl: -1
   max_conns: 15

@@ -62,7 +62,6 @@ type Service struct {
 
 func (s *Services) Reload() error {
 	var err error
-	log.WithFields(log.Fields{}).Debug("services reload...")
 	begin := time.Now()
 	defer func() {
 		fields := log.Fields{
@@ -137,7 +136,6 @@ func (bl *BlackList) Reload() error {
 	var err error
 	bl.Lock()
 	defer bl.Unlock()
-	log.WithFields(log.Fields{}).Debug("blacklist reload...")
 	begin := time.Now()
 	defer func() {
 		fields := log.Fields{
@@ -196,7 +194,6 @@ func (pp *PostPaidList) Reload() error {
 	var err error
 	pp.Lock()
 	defer pp.Unlock()
-	log.WithFields(log.Fields{}).Debug("post paid reload...")
 	begin := time.Now()
 	defer func() {
 		fields := log.Fields{
@@ -259,9 +256,7 @@ type Operator struct {
 func (ops *Operators) Reload() error {
 	ops.Lock()
 	defer ops.Unlock()
-
 	var err error
-	log.WithFields(log.Fields{}).Debug("operators reload...")
 	begin := time.Now()
 	defer func() {
 		fields := log.Fields{
@@ -275,6 +270,7 @@ func (ops *Operators) Reload() error {
 
 	query := fmt.Sprintf("SELECT "+
 		"name, "+
+		"code, "+
 		"rps, "+
 		"settings "+
 		"FROM %soperators",
@@ -292,6 +288,7 @@ func (ops *Operators) Reload() error {
 		var op Operator
 		if err = rows.Scan(
 			&op.Name,
+			&op.Code,
 			&op.Rps,
 			&op.Settings,
 		); err != nil {
