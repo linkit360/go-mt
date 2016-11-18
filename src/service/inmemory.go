@@ -13,55 +13,43 @@ import (
 	"github.com/vostrok/utils/db"
 )
 
+var dbConn *sql.DB
+var inMemConf = []cqr.CQRConfig{
+	{
+		Table:      "blacklist",
+		ReloadFunc: memBlackListed.Reload,
+	},
+	{
+		Table:      "postpaid",
+		ReloadFunc: memPostPaid.Reload,
+	},
+	{
+		Table:      "services",
+		ReloadFunc: memServices.Reload,
+	},
+	{
+		Table:      "operators",
+		ReloadFunc: memOperators.Reload,
+	},
+}
+
+func initInMem(dbConfig db.DataBaseConfig) error {
+	dbConn = db.Init(dbConfig)
+	return cqr.InitCQR(inMemConf)
+}
+
 func AddCQRHandlers(r *gin.Engine) {
 	cqr.AddCQRHandler(reloadCQRFunc, r)
 }
 
 func reloadCQRFunc(c *gin.Context) {
-	conf := []cqr.CQRConfig{
-		{
-			Table:      "blacklist",
-			ReloadFunc: memBlackListed.Reload,
-		},
-		{
-			Table:      "postpaid",
-			ReloadFunc: memPostPaid.Reload,
-		},
-		{
-			Table:      "services",
-			ReloadFunc: memServices.Reload,
-		},
-		{
-			Table:      "operators",
-			ReloadFunc: memOperators.Reload,
-		},
-	}
-	cqr.CQRReloadFunc(conf, c)(c)
+	cqr.CQRReloadFunc(inMemConf, c)(c)
 }
 
 const ACTIVE_STATUS = 1
 
-var dbConn *sql.DB
-
 func init() {
 	log.SetLevel(log.DebugLevel)
-}
-func initInMem(dbConfig db.DataBaseConfig) error {
-	dbConn = db.Init(dbConfig)
-
-	if err := memServices.Reload(); err != nil {
-		return fmt.Errorf("memServices.Reload: %s", err.Error())
-	}
-	if err := memBlackListed.Reload(); err != nil {
-		return fmt.Errorf("memBlackListed.Reload: %s", err.Error())
-	}
-	if err := memPostPaid.Reload(); err != nil {
-		return fmt.Errorf("memPostPaid.Reload: %s", err.Error())
-	}
-	if err := memOperators.Reload(); err != nil {
-		return fmt.Errorf("memOperators.Reload: %s", err.Error())
-	}
-	return nil
 }
 
 // Tasks:
