@@ -11,9 +11,8 @@ import (
 
 	"github.com/streadway/amqp"
 
-	rec "github.com/vostrok/mt_manager/src/service/instance"
-	m "github.com/vostrok/mt_manager/src/service/metrics"
 	pixels "github.com/vostrok/pixels/src/notifier"
+	rec "github.com/vostrok/utils/rec"
 )
 
 // here are functions to sent tarifficate requests to operator
@@ -32,7 +31,7 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			m.SubscritpionsDropped.Inc()
+			SubscritpionsDropped.Inc()
 
 			log.WithFields(log.Fields{
 				"error":       err.Error(),
@@ -45,17 +44,17 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 
 		go func(r rec.Record) {
 			if err := handle(r); err != nil {
-				m.SubscritpionsErrors.Inc()
+				SubscritpionsErrors.Inc()
 			} else {
-				m.SubscritpionsSent.Inc()
+				SubscritpionsSent.Inc()
 			}
 			msg.Ack(false)
 		}(e.EventData)
 	}
 }
 
-func processRetries() {
-	retries, err := rec.GetRetryTransactions(svc.conf.RetryCount)
+func processRetries(operatorCode int64) {
+	retries, err := rec.GetRetryTransactions(operatorCode, svc.conf.RetryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),
@@ -133,7 +132,7 @@ func handle(subscription rec.Record) error {
 	if !ok {
 		logCtx.Error("service not found")
 		err := fmt.Errorf("Service id %d not found", subscription.ServiceId)
-		m.Errors.Inc()
+		Errors.Inc()
 		return err
 	}
 	logCtx.WithField("service_id", mService.Id).Debug("found service")
@@ -142,7 +141,7 @@ func handle(subscription rec.Record) error {
 	if mService.Price <= 0 {
 		logCtx.WithField("price", mService.Price).Error("price is not set")
 		err := fmt.Errorf("Service price %d is zero or less", mService.Price)
-		m.Errors.Inc()
+		Errors.Inc()
 		return err
 	}
 	subscription.Price = 100 * int(mService.Price)
@@ -158,7 +157,7 @@ func handle(subscription rec.Record) error {
 		} else if err != nil {
 			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
 			err = fmt.Errorf("Get previous subscription: %s", err.Error())
-			m.Errors.Inc()
+			Errors.Inc()
 			return err
 		} else {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
@@ -168,7 +167,7 @@ func handle(subscription rec.Record) error {
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
-				m.Rejected.Inc()
+				Rejected.Inc()
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
 				subscription.WriteSubscriptionStatus()
@@ -187,7 +186,7 @@ func handle(subscription rec.Record) error {
 
 	logCtx.Debug("blacklist checks..")
 	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
-		m.BlackListed.Inc()
+		BlackListed.Inc()
 		logCtx.Info("immemory blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
@@ -197,14 +196,14 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("postpaid checks..")
 	if _, ok := memPostPaid.Map[subscription.Msisdn]; ok {
 		logCtx.Info("immemory postpaid")
-		m.PostPaid.Inc()
+		PostPaid.Inc()
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
 	}
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
-		m.Pixel.Inc()
+		Pixel.Inc()
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		notifyPixel(pixels.Pixel{
 			Tid:            subscription.Tid,

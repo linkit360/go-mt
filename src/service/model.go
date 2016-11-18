@@ -3,16 +3,17 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
-	"github.com/vostrok/db"
-	rec "github.com/vostrok/mt_manager/src/service/instance"
-	m "github.com/vostrok/mt_manager/src/service/metrics"
 	pixels "github.com/vostrok/pixels/src/notifier"
-	"github.com/vostrok/rabbit"
+	"github.com/vostrok/utils/amqp"
 	queue_config "github.com/vostrok/utils/config"
+	"github.com/vostrok/utils/db"
+	rec "github.com/vostrok/utils/rec"
 )
 
 // queues:
@@ -22,6 +23,7 @@ var svc MTService
 
 func Init(
 	sConf MTServiceConfig,
+	operatorConfig map[string]queue_config.OperatorConfig,
 	queueOperators map[string]queue_config.OperatorQueueConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf rabbit.NotifierConfig,
@@ -35,7 +37,7 @@ func Init(
 	svc.conf.QueueOperators = queueOperators
 	rec.Init(dbConf)
 
-	m.Init()
+	initMetrics()
 
 	svc.publisher = rabbit.NewNotifier(publisherConf)
 
@@ -44,14 +46,50 @@ func Init(
 	}
 	log.Info("inmemory tables init ok")
 
+	svc.operatorRequestQueueFree = make(map[string]chan struct{}, len(operatorConfig))
+	go func() {
+		for range time.Tick(time.Second) {
+			for operatorName, queue := range queueOperators {
+				queueSize, err := svc.publisher.GetQueueSize(queue.Requests)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"operator": operatorName,
+						"error":    err.Error(),
+					}).Error("cannot get queue size")
+				}
+				if queueSize < operatorConfig[operatorName].OperatorRequestQueueSize {
+					svc.operatorRequestQueueFree[operatorName] <- struct{}{}
+				}
+			}
+		}
+	}()
+
+	// retries
+	go func() {
+		for operatorName, operatorConf := range operatorConfig {
+			if operatorConf.RetriesEnabled {
+				operator, ok := memOperators.ByName[strings.ToLower(operatorName)]
+				if !ok {
+					log.WithField("operatorName", operatorName).Fatal("cannot find operator")
+				}
+				select {
+				case <-svc.operatorRequestQueueFree[operatorName]:
+					processRetries(operator.Code)
+				}
+
+			}
+		}
+
+	}()
+
 	// process consumer
 	svc.consumer = rabbit.NewConsumer(consumerConfig)
 	if err := svc.consumer.Connect(); err != nil {
 		log.Fatal("rbmq consumer connect:", err.Error())
 	}
 
-	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery)
-	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery)
+	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
+	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
 	for operatorName, queue := range queueOperators {
 		// queue for mo tarifficate requests
 		log.Info("initialising operator " + operatorName)
@@ -98,6 +136,7 @@ func Init(
 type MTService struct {
 	MOTarifficateRequestsChan        map[string]<-chan amqp_driver.Delivery
 	operatorTarifficateResponsesChan map[string]<-chan amqp_driver.Delivery
+	operatorRequestQueueFree         map[string]chan struct{}
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
 	publisher                        *rabbit.Notifier

@@ -9,10 +9,10 @@ import (
 	"github.com/jinzhu/configor"
 
 	"fmt"
-	"github.com/vostrok/db"
 	"github.com/vostrok/mt_manager/src/service"
-	"github.com/vostrok/rabbit"
+	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/config"
+	"github.com/vostrok/utils/db"
 )
 
 type ServerConfig struct {
@@ -25,7 +25,7 @@ type AppConfig struct {
 	DbConf    db.DataBaseConfig                     `yaml:"db"`
 	Publisher rabbit.NotifierConfig                 `yaml:"publisher"`
 	Consumer  rabbit.ConsumerConfig                 `yaml:"consumer"`
-	Operators []config.OperatorConfig               `yaml:"operators"`
+	Operators map[string]config.OperatorConfig      `yaml:"operators"`
 	Queues    map[string]config.OperatorQueueConfig `yaml:"-"`
 }
 

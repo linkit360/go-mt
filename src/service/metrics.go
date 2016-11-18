@@ -1,11 +1,9 @@
-package metrics
+package service
 
 import (
-	"time"
-
 	"github.com/prometheus/client_golang/prometheus"
 
-	m "github.com/vostrok/metrics"
+	m "github.com/vostrok/utils/metrics"
 )
 
 var (
@@ -29,19 +27,19 @@ var (
 )
 
 func newGaugeResponse(name, help string) m.Gauge {
-	return m.NewGaugeMetric("response", name, "response "+help)
+	return m.NewGauge("", "response", name, "response "+help)
 }
 func newGaugeNotPaid(name, help string) m.Gauge {
-	return m.NewGaugeMetric("not_paid_status", name, "not paid status "+help)
+	return m.NewGauge("", "not_paid_status", name, "not paid status "+help)
 }
 func newGaugeOperaor(name, help string) m.Gauge {
-	return m.NewGaugeMetric("operator", name, "operator "+help)
+	return m.NewGauge("", "operator", name, "operator "+help)
 }
 func newGaugeSubscritpions(name, help string) m.Gauge {
-	return m.NewGaugeMetric("subscritpions", name, "subscritpions "+help)
+	return m.NewGauge("", "subscritpions", name, "subscritpions "+help)
 }
 
-func Init() {
+func initMetrics() {
 
 	SinceSuccessPaid = m.PrometheusGauge(
 		"",
@@ -70,23 +68,4 @@ func Init() {
 	ResponseErrors = newGaugeResponse("errors", "errors")
 	ResponseSuccess = newGaugeResponse("success", "success")
 
-	go func() {
-		// metrics in prometheus as for 15s (default)
-		// so make for minute interval
-		for range time.Tick(time.Minute) {
-			TarificateFailed.Update()
-			TarificateRequestsOverall.Update()
-			OperatorNotEnabled.Update()
-			OperatorNotApplicable.Update()
-			Errors.Update()
-			DBErrors.Update()
-			PostPaid.Update()
-			Rejected.Update()
-			BlackListed.Update()
-			Pixel.Update()
-			ResponseDropped.Update()
-			ResponseErrors.Update()
-			ResponseSuccess.Update()
-		}
-	}()
 }

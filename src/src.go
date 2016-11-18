@@ -10,9 +10,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/gin-gonic/gin"
 
-	"github.com/vostrok/metrics"
 	"github.com/vostrok/mt_manager/src/config"
 	"github.com/vostrok/mt_manager/src/service"
+	"github.com/vostrok/utils/metrics"
 )
 
 func RunServer() {
@@ -21,6 +21,7 @@ func RunServer() {
 
 	service.Init(
 		appConfig.Service,
+		appConfig.Operators,
 		appConfig.Queues,
 		appConfig.DbConf,
 		appConfig.Publisher,

@@ -19,8 +19,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/streadway/amqp"
 
-	rec "github.com/vostrok/mt_manager/src/service/instance"
-	m "github.com/vostrok/mt_manager/src/service/metrics"
+	rec "github.com/vostrok/utils/rec"
 )
 
 func processResponses(deliveries <-chan amqp.Delivery) {
@@ -31,7 +30,7 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			m.ResponseDropped.Inc()
+			ResponseDropped.Inc()
 
 			log.WithFields(log.Fields{
 				"error":    err.Error(),
@@ -44,9 +43,9 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 
 		go func(r rec.Record) {
 			if err := handleResponse(e.EventData); err != nil {
-				m.ResponseErrors.Inc()
+				ResponseErrors.Inc()
 			} else {
-				m.ResponseSuccess.Inc()
+				ResponseSuccess.Inc()
 			}
 			msg.Ack(false)
 		}(e.EventData)
@@ -57,7 +56,7 @@ func smsSend(record rec.Record, msg string) error {
 	// todo: rpc service?
 	operator, ok := memOperators.ByCode[record.OperatorCode]
 	if !ok {
-		m.OperatorNotApplicable.Inc()
+		OperatorNotApplicable.Inc()
 
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
@@ -68,7 +67,7 @@ func smsSend(record rec.Record, msg string) error {
 	operatorName := strings.ToLower(operator.Name)
 	queue, ok := svc.conf.QueueOperators[operatorName]
 	if !ok {
-		m.OperatorNotEnabled.Inc()
+		OperatorNotEnabled.Inc()
 
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
@@ -77,7 +76,7 @@ func smsSend(record rec.Record, msg string) error {
 		return fmt.Errorf("Name %s is not enabled", operatorName)
 	}
 	record.SMSText = msg
-	if err := notifyOperatorRequest(queue.SMS, "send", record); err != nil {
+	if err := notifyOperatorRequest(queue.SMSRequest, "send", record); err != nil {
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
@@ -96,12 +95,12 @@ func handleResponse(record rec.Record) error {
 	logCtx.Info("start processing response")
 
 	if record.SubscriptionStatus == "postpaid" {
-		m.PostPaid.Inc()
+		PostPaid.Inc()
 		logCtx.Debug("number is postpaid")
 		if err := record.AddPostPaidNumber(); err != nil {
 			err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
 			logCtx.WithField("error", err.Error()).Error("add postpaid error")
-			m.Errors.Inc()
+			Errors.Inc()
 			return err
 		}
 		logCtx.Info("new postpaid number added")
@@ -112,7 +111,7 @@ func handleResponse(record rec.Record) error {
 	}
 
 	if len(record.OperatorToken) > 0 && record.Paid {
-		m.SinceSuccessPaid.Set(.0)
+		SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"
 		if record.AttemptsCount >= 1 {
 			record.Result = "retry_paid"
@@ -139,7 +138,7 @@ func handleResponse(record rec.Record) error {
 		return err
 	}
 	if err := record.WriteTransaction(); err != nil {
-		m.Errors.Inc()
+		Errors.Inc()
 		// already logged inside, wuth query
 		err = fmt.Errorf("record.WriteTransaction :%s", err.Error())
 		return err
@@ -153,7 +152,7 @@ func handleResponse(record rec.Record) error {
 
 		mService, ok := memServices.Map[record.ServiceId]
 		if !ok {
-			m.Errors.Inc()
+			Errors.Inc()
 			err := fmt.Errorf("memServices.Map: %d", record.ServiceId)
 			logCtx.WithFields(log.Fields{
 				"error": "Service not found",
@@ -212,7 +211,7 @@ func handleResponse(record rec.Record) error {
 		}
 		if remove {
 			if err := record.RemoveRetry(); err != nil {
-				m.Errors.Inc()
+				Errors.Inc()
 
 				err = fmt.Errorf("record.RemoveRetry :%s", err.Error())
 				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
@@ -220,7 +219,7 @@ func handleResponse(record rec.Record) error {
 			}
 		} else {
 			if err := record.TouchRetry(); err != nil {
-				m.Errors.Inc()
+				Errors.Inc()
 
 				err = fmt.Errorf("record.TouchRetry: %s", err.Error())
 				logCtx.WithField("error", err.Error()).Error("touch retry failed")
