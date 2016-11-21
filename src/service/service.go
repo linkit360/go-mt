@@ -26,8 +26,8 @@ func Init(
 	operatorConfig map[string]queue_config.OperatorConfig,
 	queueOperators map[string]queue_config.OperatorQueueConfig,
 	dbConf db.DataBaseConfig,
-	publisherConf rabbit.NotifierConfig,
-	consumerConfig rabbit.ConsumerConfig,
+	publisherConf amqp.NotifierConfig,
+	consumerConfig amqp.ConsumerConfig,
 
 ) {
 	log.SetLevel(log.DebugLevel)
@@ -39,32 +39,49 @@ func Init(
 
 	initMetrics()
 
-	svc.publisher = rabbit.NewNotifier(publisherConf)
+	svc.publisher = amqp.NewNotifier(publisherConf)
 
 	if err := initInMem(dbConf); err != nil {
 		log.WithField("error", err.Error()).Fatal("init in memory tables")
 	}
 	log.Info("inmemory tables init ok")
 
+	// if the operator requests queue size is less than the amount if items specified in config
+	// then - get records from database and make retries
 	svc.operatorRequestQueueFree = make(map[string]chan struct{}, len(operatorConfig))
 	go func() {
 		for range time.Tick(time.Second) {
 			for operatorName, queue := range queueOperators {
+
 				queueSize, err := svc.publisher.GetQueueSize(queue.Requests)
 				if err != nil {
 					log.WithFields(log.Fields{
 						"operator": operatorName,
 						"error":    err.Error(),
 					}).Error("cannot get queue size")
+					continue
 				}
-				if queueSize < operatorConfig[operatorName].OperatorRequestQueueSize {
+				log.WithFields(log.Fields{
+					"operator":  operatorName,
+					"queue":     queue.Requests,
+					"queueSize": queueSize,
+				}).Debug("got size")
+
+				if len(svc.operatorRequestQueueFree[operatorName]) == 0 &&
+					queueSize < operatorConfig[operatorName].OperatorRequestQueueSize {
+
 					svc.operatorRequestQueueFree[operatorName] <- struct{}{}
+					log.WithFields(log.Fields{
+						"operator":  operatorName,
+						"queue":     queue.Requests,
+						"queueSize": queueSize,
+					}).Debug("sent signal to start procesing")
 				}
 			}
 		}
 	}()
 
-	// retries
+	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
 		for operatorName, operatorConf := range operatorConfig {
 			if operatorConf.RetriesEnabled {
@@ -82,65 +99,60 @@ func Init(
 
 	}()
 
-	// process consumer
-	svc.consumer = rabbit.NewConsumer(consumerConfig)
+	// create new consumer
+	svc.consumer = amqp.NewConsumer(consumerConfig)
 	if err := svc.consumer.Connect(); err != nil {
 		log.Fatal("rbmq consumer connect:", err.Error())
 	}
 
 	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
 	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
+	svc.operatorSMSResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
+
 	for operatorName, queue := range queueOperators {
-		// queue for mo tarifficate requests
 		log.Info("initialising operator " + operatorName)
-		var err error
-		svc.MOTarifficateRequestsChan[operatorName], err =
-			svc.consumer.AnnounceQueue(
-				queue.MOTarifficate,
-				queue.MOTarifficate)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"queue": queue.NewSubscription,
-				"error": err.Error(),
-			}).Fatal("rbmq consumer: AnnounceQueue")
-		}
-		go svc.consumer.Handle(
+
+		// queue for mo tarifficate requests
+		amqp.InitQueue(
+			svc.consumer,
 			svc.MOTarifficateRequestsChan[operatorName],
 			processSubscriptions,
 			sConf.ThreadsCount,
 			queue.MOTarifficate,
 			queue.MOTarifficate,
 		)
-		log.Info(queue.MOTarifficate + " consume queue init done")
 
 		// queue for responses
-		svc.operatorTarifficateResponsesChan[operatorName], err =
-			svc.consumer.AnnounceQueue(queue.Responses, queue.Responses)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"queue": queue.Responses,
-				"error": err.Error(),
-			}).Fatal("rbmq consumer: AnnounceQueue")
-		}
-		go svc.consumer.Handle(
+		amqp.InitQueue(
+			svc.consumer,
 			svc.operatorTarifficateResponsesChan[operatorName],
 			processResponses,
 			sConf.ThreadsCount,
 			queue.Responses,
 			queue.Responses,
 		)
-		log.Info(queue.Responses + " consume queue init done")
+
+		// queue for sms responses
+		amqp.InitQueue(
+			svc.consumer,
+			svc.operatorSMSResponsesChan[operatorName],
+			processSMSResponses,
+			sConf.ThreadsCount,
+			queue.SMSResponse,
+			queue.SMSResponse,
+		)
 	}
 }
 
 type MTService struct {
 	MOTarifficateRequestsChan        map[string]<-chan amqp_driver.Delivery
 	operatorTarifficateResponsesChan map[string]<-chan amqp_driver.Delivery
+	operatorSMSResponsesChan         map[string]<-chan amqp_driver.Delivery
 	operatorRequestQueueFree         map[string]chan struct{}
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
-	publisher                        *rabbit.Notifier
-	consumer                         *rabbit.Consumer
+	publisher                        *amqp.Notifier
+	consumer                         *amqp.Consumer
 }
 type OperatorQueueConfig struct {
 	NewSubscription string `yaml:"-"`
@@ -166,8 +178,9 @@ type MTServiceConfig struct {
 func notifyPixel(msg pixels.Pixel) error {
 	log.WithField("pixel", fmt.Sprintf("%#v", msg)).Debug("got pixel")
 
-	event := rabbit.EventNotify{
-		EventName: "pixels",
+	eventName := "pixels"
+	event := amqp.EventNotify{
+		EventName: eventName,
 		EventData: msg,
 	}
 	body, err := json.Marshal(event)
@@ -175,7 +188,12 @@ func notifyPixel(msg pixels.Pixel) error {
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 	log.WithField("body", string(body)).Debug("sent pixels")
-	svc.publisher.Publish(rabbit.AMQPMessage{svc.conf.Queues.Pixels, body})
+	log.WithFields(log.Fields{
+		"data":  fmt.Sprintf("%#v", msg),
+		"queue": svc.conf.Queues.Pixels,
+		"event": eventName,
+	}).Debug("sent")
+	svc.publisher.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, body})
 	return nil
 }
 
@@ -187,7 +205,7 @@ func notifyOperatorRequest(queue, eventName string, msg interface{}) error {
 		return fmt.Errorf("QueueSend: %s", "empty queue name")
 	}
 
-	event := rabbit.EventNotify{
+	event := amqp.EventNotify{
 		EventName: eventName,
 		EventData: msg,
 	}
@@ -199,7 +217,7 @@ func notifyOperatorRequest(queue, eventName string, msg interface{}) error {
 		"data":  fmt.Sprintf("%#v", msg),
 		"queue": queue,
 		"event": eventName,
-	}).Debug("prepare to send")
-	svc.publisher.Publish(rabbit.AMQPMessage{queue, body})
+	}).Debug("sent")
+	svc.publisher.Publish(amqp.AMQPMessage{queue, body})
 	return nil
 }

@@ -7,23 +7,22 @@ import (
 )
 
 var (
-	SinceSuccessPaid          prometheus.Gauge
-	TarificateRequestsOverall m.Gauge
-	OperatorNotEnabled        m.Gauge
-	OperatorNotApplicable     m.Gauge
-	Errors                    m.Gauge
-	DBErrors                  m.Gauge
-	TarificateFailed          m.Gauge
-	PostPaid                  m.Gauge
-	Rejected                  m.Gauge
-	BlackListed               m.Gauge
-	Pixel                     m.Gauge
-	SubscritpionsDropped      m.Gauge
-	SubscritpionsErrors       m.Gauge
-	SubscritpionsSent         m.Gauge
-	ResponseDropped           m.Gauge
-	ResponseErrors            m.Gauge
-	ResponseSuccess           m.Gauge
+	SinceSuccessPaid            prometheus.Gauge
+	OperatorNotEnabled          m.Gauge
+	OperatorNotApplicable       m.Gauge
+	Errors                      m.Gauge
+	PostPaid                    m.Gauge
+	Rejected                    m.Gauge
+	BlackListed                 m.Gauge
+	Pixel                       m.Gauge
+	SubscritpionsDropped        m.Gauge
+	SubscritpionsErrors         m.Gauge
+	SubscritpionsSent           m.Gauge
+	TarificateFailed            m.Gauge
+	TarificateResponsesReceived m.Gauge
+	ResponseDropped             m.Gauge
+	ResponseErrors              m.Gauge
+	ResponseSuccess             m.Gauge
 )
 
 func newGaugeResponse(name, help string) m.Gauge {
@@ -48,10 +47,9 @@ func initMetrics() {
 		"Seconds ago from successful payment from any operator",
 	)
 	Errors = newGaugeNotPaid("errors", "Errors during processing")
-	DBErrors = newGaugeNotPaid("db_errors", "DB errors pverall mt_manager")
 
 	TarificateFailed = newGaugeNotPaid("tarificate_falied", "Tariffication attempt errors")
-	TarificateRequestsOverall = newGaugeOperaor("tarifficate_request", "tarifficate request")
+	TarificateResponsesReceived = newGaugeOperaor("tarifficate_request", "tarifficate request")
 	OperatorNotEnabled = newGaugeOperaor("not_enabled", "operator is not enabled in config")
 	OperatorNotApplicable = newGaugeOperaor("not_applicable", "there is no such operator in database")
 

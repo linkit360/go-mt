@@ -52,6 +52,36 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 	}
 }
 
+func processSMSResponses(deliveries <-chan amqp.Delivery) {
+	for msg := range deliveries {
+		log.WithFields(log.Fields{
+			"body": string(msg.Body),
+		}).Debug("start process")
+
+		var e EventNotifyTarifficate
+		if err := json.Unmarshal(msg.Body, &e); err != nil {
+			ResponseDropped.Inc()
+
+			log.WithFields(log.Fields{
+				"error":    err.Error(),
+				"msg":      "dropped",
+				"response": string(msg.Body),
+			}).Error("consume failed")
+			msg.Ack(false)
+			continue
+		}
+
+		go func(r rec.Record) {
+			if err := handleSMSResponse(e.EventData); err != nil {
+				ResponseErrors.Inc()
+			} else {
+				ResponseSuccess.Inc()
+			}
+			msg.Ack(false)
+		}(e.EventData)
+	}
+}
+
 func smsSend(record rec.Record, msg string) error {
 	// todo: rpc service?
 	operator, ok := memOperators.ByCode[record.OperatorCode]
@@ -88,12 +118,35 @@ func smsSend(record rec.Record, msg string) error {
 	return nil
 }
 
+func handleSMSResponse(record rec.Record) error {
+	smsTranasction := record
+	smsTranasction.Result = "sms"
+	if smsTranasction.OperatorErr != "" {
+		smsTranasction.Result = "sms failed"
+	} else {
+		smsTranasction.Result = "sms sent"
+	}
+	if err := smsTranasction.WriteTransaction(); err != nil {
+		log.WithFields(log.Fields{
+			"tid":    smsTranasction.Tid,
+			"msisdn": smsTranasction.Msisdn,
+			"error":  err.Error(),
+		}).Error("failed to write sms transaction")
+		return err
+	}
+	return nil
+}
+
 func handleResponse(record rec.Record) error {
+	TarificateResponsesReceived.Inc()
 	logCtx := log.WithFields(log.Fields{
 		"tid": record.Tid,
 	})
 	logCtx.Info("start processing response")
 
+	if record.OperatorErr != "" {
+		TarificateFailed.Inc()
+	}
 	if record.SubscriptionStatus == "postpaid" {
 		PostPaid.Inc()
 		logCtx.Debug("number is postpaid")
@@ -180,7 +233,7 @@ func handleResponse(record rec.Record) error {
 			}
 
 		} else {
-			logCtx.WithField("service id", mService.Id).Info("send sms disabled on service")
+			logCtx.WithField("serviceId", mService.Id).Debug("send sms disabled on service")
 		}
 
 		logCtx.Info("add to retries")

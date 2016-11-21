@@ -23,8 +23,8 @@ type AppConfig struct {
 	Server    ServerConfig                          `yaml:"server"`
 	Service   service.MTServiceConfig               `yaml:"service"`
 	DbConf    db.DataBaseConfig                     `yaml:"db"`
-	Publisher rabbit.NotifierConfig                 `yaml:"publisher"`
-	Consumer  rabbit.ConsumerConfig                 `yaml:"consumer"`
+	Publisher amqp.NotifierConfig                   `yaml:"publisher"`
+	Consumer  amqp.ConsumerConfig                   `yaml:"consumer"`
 	Operators map[string]config.OperatorConfig      `yaml:"operators"`
 	Queues    map[string]config.OperatorQueueConfig `yaml:"-"`
 }

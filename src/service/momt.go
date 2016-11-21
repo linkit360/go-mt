@@ -222,14 +222,16 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("send to operator")
 	operator, ok := memOperators.ByCode[subscription.OperatorCode]
 	if !ok {
-		logCtx.Debug("SMS send: not applicable to any operator")
-		return fmt.Errorf("Code %s is not applicable to any operator", subscription.OperatorCode)
+		err := fmt.Errorf("Code %s is not applicable to any operator", subscription.OperatorCode)
+		logCtx.WithField("error", err.Error()).Error("Not applicable to any operator")
+		return err
 	}
 	operatorName := strings.ToLower(operator.Name)
 	queue, ok := svc.conf.QueueOperators[operatorName]
 	if !ok {
-		logCtx.Debug("SMS send: not enabled in mt_manager")
-		return fmt.Errorf("Name %s is not enabled", operatorName)
+		err := fmt.Errorf("Name %s is not enabled", operatorName)
+		logCtx.WithField("error", err.Error()).Error("not enabled in config")
+		return err
 	}
 
 	if err := notifyOperatorRequest(queue.Requests, "charge", subscription); err != nil {
