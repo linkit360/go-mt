@@ -68,8 +68,8 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 	}
 }
 
-func processRetries(operatorCode int64) {
-	retries, err := rec.GetRetryTransactions(operatorCode, svc.conf.RetryCount)
+func processRetries(operatorCode int64, retryCount int) {
+	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err.Error(),

@@ -77,7 +77,6 @@ func Init(
 					"queueSize": queueSize,
 					"cond":      queueSize <= operatorConf.OperatorRequestQueueSize,
 				}).Debug("got size")
-
 				if queueSize <= operatorConf.OperatorRequestQueueSize {
 					operator, err := inmem_client.GetOperatorByName(operatorName)
 					if err != nil {
@@ -90,7 +89,7 @@ func Init(
 					log.WithFields(log.Fields{
 						"operatorName": operatorName,
 					}).Info("start processing retries")
-					processRetries(operator.Code)
+					processRetries(operator.Code, operatorConf.GetFromDBRetryCount)
 				}
 
 			}
