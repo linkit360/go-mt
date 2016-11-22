@@ -3,6 +3,10 @@ name: mumbai_mt_manager
 server:
   port: 50305
 
+inmem_client:
+  dsn: localhost:50307
+  timeout: 10
+
 service:
   retry_period: 10
   retry_count: 500

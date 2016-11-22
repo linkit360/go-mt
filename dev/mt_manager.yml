@@ -3,21 +3,22 @@ name: mumbai_mt_manager
 server:
   port: 50305
 
-service:
-  retry_period: 10
-  retry_count: 500
-  tables:
-  - subscriptions
+inmem_client:
+  dsn: localhost:50307
+  timeout: 10
 
+service:
   queues:
     pixels: pixels
 
 operators:
-- name: mobilink
-  retries_enabled: true
-#
-#    - name: yondu
-#      retries_enabled: false
+  mobilink:
+    name: mobilink
+    retries_enabled: true
+    get_from_db_retry_count: 500
+    get_from_db_retry_period_seconds: 10
+
+
 db:
   conn_ttl: -1
   max_conns: 15
