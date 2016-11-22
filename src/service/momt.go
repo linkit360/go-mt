@@ -1,5 +1,19 @@
 package service
 
+// does following:
+// listen to *_mo_subscription queues
+// send them to operator request queue
+
+// check operator requests queue, if free:
+// get some retries from database
+// send to operator requesus queue
+// if everything is ok, then remove item
+// if not, "touch" item == renew attempts count and last attempt date
+
+// send sms request to operator queue if necessary
+
+// listen to operator responses queue
+// make all needed operations with retries, subscritpions to mark records as processed
 import (
 	"database/sql"
 	"encoding/json"
@@ -11,6 +25,7 @@ import (
 
 	"github.com/streadway/amqp"
 
+	inmem_client "github.com/vostrok/inmem/rpcclient"
 	pixels "github.com/vostrok/pixels/src/notifier"
 	rec "github.com/vostrok/utils/rec"
 )
@@ -128,20 +143,20 @@ func handle(subscription rec.Record) error {
 	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
 	logCtx.Debug("start processsing")
 
-	mService, ok := memServices.Map[subscription.ServiceId]
-	if !ok {
-		logCtx.Error("service not found")
-		err := fmt.Errorf("Service id %d not found", subscription.ServiceId)
+	mService, err := inmem_client.GetServiceById(subscription.ServiceId)
+	if err != nil {
 		Errors.Inc()
+
+		err := fmt.Errorf("Service id %d: %s", subscription.ServiceId, err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't process")
 		return err
 	}
-	logCtx.WithField("service_id", mService.Id).Debug("found service")
-
 	// misconfigured price
 	if mService.Price <= 0 {
+		Errors.Inc()
+
 		logCtx.WithField("price", mService.Price).Error("price is not set")
 		err := fmt.Errorf("Service price %d is zero or less", mService.Price)
-		Errors.Inc()
 		return err
 	}
 	subscription.Price = 100 * int(mService.Price)
@@ -185,18 +200,37 @@ func handle(subscription rec.Record) error {
 	}
 
 	logCtx.Debug("blacklist checks..")
-	if _, ok := memBlackListed.Map[subscription.Msisdn]; ok {
+	blackListed, err := inmem_client.IsBlackListed(subscription.Msisdn)
+	if err != nil {
+		// todo rpc metric
+		Errors.Inc()
+
+		err := fmt.Errorf("inmem_client.IsBlackListed: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't get is blacklisted")
+		return err
+	}
+	if blackListed {
 		BlackListed.Inc()
-		logCtx.Info("immemory blacklisted")
+		logCtx.Info("blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
 		return nil
 	}
 
 	logCtx.Debug("postpaid checks..")
-	if _, ok := memPostPaid.Map[subscription.Msisdn]; ok {
-		logCtx.Info("immemory postpaid")
+	postPaid, err := inmem_client.IsPostPaid(subscription.Msisdn)
+	if err != nil {
+		// todo rpc metric
+		Errors.Inc()
+
+		err := fmt.Errorf("inmem_client.IsPostPaid: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't get is postpaid")
+		return err
+	}
+	if postPaid {
 		PostPaid.Inc()
+
+		logCtx.Info("postpaid")
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
@@ -220,10 +254,10 @@ func handle(subscription rec.Record) error {
 	}
 
 	logCtx.Debug("send to operator")
-	operator, ok := memOperators.ByCode[subscription.OperatorCode]
-	if !ok {
-		err := fmt.Errorf("Code %s is not applicable to any operator", subscription.OperatorCode)
-		logCtx.WithField("error", err.Error()).Error("Not applicable to any operator")
+	operator, err := inmem_client.GetOperatorByCode(subscription.OperatorCode)
+	if err != nil {
+		err := fmt.Errorf("inmem_client.GetOperatorByCode %s: %s", subscription.OperatorCode, err.Error())
+		logCtx.WithField("error", err.Error()).Error("can't get operator by code")
 		return err
 	}
 	operatorName := strings.ToLower(operator.Name)

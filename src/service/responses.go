@@ -1,15 +1,5 @@
 package service
 
-// does following:
-// get subscription records that are in "" status (not tries to pay) or in "failed" status
-// tries to charge via operator
-// if not, set up retries
-
-// get all retries
-// retry transaction to the operator
-// if everything is ok, then remove item
-// if not, "touch" item == renew attempts count and last attempt date
-
 import (
 	"encoding/json"
 	"fmt"
@@ -19,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/streadway/amqp"
 
+	inmem_client "github.com/vostrok/inmem/rpcclient"
 	rec "github.com/vostrok/utils/rec"
 )
 
@@ -83,11 +74,9 @@ func processSMSResponses(deliveries <-chan amqp.Delivery) {
 }
 
 func smsSend(record rec.Record, msg string) error {
-	// todo: rpc service?
-	operator, ok := memOperators.ByCode[record.OperatorCode]
-	if !ok {
+	operator, err := inmem_client.GetOperatorByCode(record.OperatorCode)
+	if err != nil {
 		OperatorNotApplicable.Inc()
-
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
 			"msisdn": record.Msisdn,
@@ -106,7 +95,7 @@ func smsSend(record rec.Record, msg string) error {
 		return fmt.Errorf("Name %s is not enabled", operatorName)
 	}
 	record.SMSText = msg
-	if err := notifyOperatorRequest(queue.SMSRequest, "send", record); err != nil {
+	if err := notifyOperatorRequest(queue.SMSRequest, "send_sms", record); err != nil {
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,
@@ -157,7 +146,7 @@ func handleResponse(record rec.Record) error {
 			return err
 		}
 		logCtx.Info("new postpaid number added")
-		memPostPaid.Reload()
+		inmem_client.PostPaidPush(record.Msisdn)
 		record.SubscriptionStatus = "postpaid"
 		record.WriteSubscriptionStatus()
 		return nil
@@ -203,12 +192,12 @@ func handleResponse(record rec.Record) error {
 			"action": "move to retry",
 		}).Debug("subscription")
 
-		mService, ok := memServices.Map[record.ServiceId]
-		if !ok {
+		mService, err := inmem_client.GetServiceById(record.ServiceId)
+		if err != nil {
 			Errors.Inc()
-			err := fmt.Errorf("memServices.Map: %d", record.ServiceId)
+			err := fmt.Errorf("GetServiceById: %d", record.ServiceId)
 			logCtx.WithFields(log.Fields{
-				"error": "Service not found",
+				"error": err.Error(),
 			}).Error("cannot process subscription")
 			return err
 		}

@@ -2,13 +2,14 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
-	"fmt"
+	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/config"
@@ -19,14 +20,15 @@ type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	Name      string                                `yaml:"name"`
-	Server    ServerConfig                          `yaml:"server"`
-	Service   service.MTServiceConfig               `yaml:"service"`
-	DbConf    db.DataBaseConfig                     `yaml:"db"`
-	Publisher amqp.NotifierConfig                   `yaml:"publisher"`
-	Consumer  amqp.ConsumerConfig                   `yaml:"consumer"`
-	Operators map[string]config.OperatorConfig      `yaml:"operators"`
-	Queues    map[string]config.OperatorQueueConfig `yaml:"-"`
+	Name              string                                `yaml:"name"`
+	Server            ServerConfig                          `yaml:"server"`
+	Service           service.MTServiceConfig               `yaml:"service"`
+	InMemClientConfig inmem_client.RPCClientConfig          `yaml:"inmem_client"`
+	DbConf            db.DataBaseConfig                     `yaml:"db"`
+	Publisher         amqp.NotifierConfig                   `yaml:"publisher"`
+	Consumer          amqp.ConsumerConfig                   `yaml:"consumer"`
+	Operators         map[string]config.OperatorConfig      `yaml:"operators"`
+	Queues            map[string]config.OperatorQueueConfig `yaml:"-"`
 }
 
 func LoadConfig() AppConfig {

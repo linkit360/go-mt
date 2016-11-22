@@ -3,12 +3,12 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
+	inmem_client "github.com/vostrok/inmem/rpcclient"
 	pixels "github.com/vostrok/pixels/src/notifier"
 	"github.com/vostrok/utils/amqp"
 	queue_config "github.com/vostrok/utils/config"
@@ -23,6 +23,7 @@ var svc MTService
 
 func Init(
 	sConf MTServiceConfig,
+	inMemConfig inmem_client.RPCClientConfig,
 	operatorConfig map[string]queue_config.OperatorConfig,
 	queueOperators map[string]queue_config.OperatorQueueConfig,
 	dbConf db.DataBaseConfig,
@@ -32,6 +33,8 @@ func Init(
 ) {
 	log.SetLevel(log.DebugLevel)
 
+	inmem_client.Init(inMemConfig)
+
 	svc.conf = sConf
 	svc.dbConf = dbConf
 	svc.conf.QueueOperators = queueOperators
@@ -40,11 +43,6 @@ func Init(
 	initMetrics()
 
 	svc.publisher = amqp.NewNotifier(publisherConf)
-
-	if err := initInMem(dbConf); err != nil {
-		log.WithField("error", err.Error()).Fatal("init in memory tables")
-	}
-	log.Info("inmemory tables init ok")
 
 	// if the operator requests queue size is less than the amount if items specified in config
 	// then - get records from database and make retries
@@ -85,9 +83,12 @@ func Init(
 	go func() {
 		for operatorName, operatorConf := range operatorConfig {
 			if operatorConf.RetriesEnabled {
-				operator, ok := memOperators.ByName[strings.ToLower(operatorName)]
-				if !ok {
-					log.WithField("operatorName", operatorName).Fatal("cannot find operator")
+				operator, err := inmem_client.GetOperatorByName(operatorName)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"error":        err.Error(),
+						"operatorName": operatorName,
+					}).Error("cannot find operator")
 				}
 				select {
 				case <-svc.operatorRequestQueueFree[operatorName]:

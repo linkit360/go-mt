@@ -21,6 +21,7 @@ func RunServer() {
 
 	service.Init(
 		appConfig.Service,
+		appConfig.InMemClientConfig,
 		appConfig.Operators,
 		appConfig.Queues,
 		appConfig.DbConf,
@@ -34,7 +35,6 @@ func RunServer() {
 
 	r := gin.New()
 
-	service.AddCQRHandlers(r)
 	metrics.AddHandler(r)
 
 	r.Run(":" + appConfig.Server.Port)
