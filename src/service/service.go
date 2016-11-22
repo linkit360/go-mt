@@ -44,13 +44,24 @@ func Init(
 
 	svc.publisher = amqp.NewNotifier(publisherConf)
 
-	// if the operator requests queue size is less than the amount if items specified in config
-	// then - get records from database and make retries
-	svc.operatorRequestQueueFree = make(map[string]chan struct{}, len(operatorConfig))
+	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
 		for range time.Tick(time.Second) {
-			for operatorName, queue := range queueOperators {
+			for operatorName, operatorConf := range operatorConfig {
+				if !operatorConf.RetriesEnabled {
+					continue
+				}
+				log.WithFields(log.Fields{
+					"enabled":      operatorConf.RetriesEnabled,
+					"operatorName": operatorName,
+				}).Debug("check retries")
 
+				queue, ok := queueOperators[operatorName]
+				if !ok {
+					log.WithFields(log.Fields{
+						"operator": operatorName,
+					}).Fatal("queue is not defined")
+				}
 				queueSize, err := svc.publisher.GetQueueSize(queue.Requests)
 				if err != nil {
 					log.WithFields(log.Fields{
@@ -59,45 +70,31 @@ func Init(
 					}).Error("cannot get queue size")
 					continue
 				}
+
 				log.WithFields(log.Fields{
 					"operator":  operatorName,
 					"queue":     queue.Requests,
 					"queueSize": queueSize,
+					"cond":      queueSize <= operatorConf.OperatorRequestQueueSize,
 				}).Debug("got size")
 
-				if len(svc.operatorRequestQueueFree[operatorName]) == 0 &&
-					queueSize < operatorConfig[operatorName].OperatorRequestQueueSize {
-
-					svc.operatorRequestQueueFree[operatorName] <- struct{}{}
+				if queueSize <= operatorConf.OperatorRequestQueueSize {
+					operator, err := inmem_client.GetOperatorByName(operatorName)
+					if err != nil {
+						log.WithFields(log.Fields{
+							"error":        err.Error(),
+							"operatorName": operatorName,
+						}).Error("cannot find operator")
+						continue
+					}
 					log.WithFields(log.Fields{
-						"operator":  operatorName,
-						"queue":     queue.Requests,
-						"queueSize": queueSize,
-					}).Debug("sent signal to start procesing")
-				}
-			}
-		}
-	}()
-
-	// get a signal and send them to operator requests queue in rabbitmq
-	go func() {
-		for operatorName, operatorConf := range operatorConfig {
-			if operatorConf.RetriesEnabled {
-				operator, err := inmem_client.GetOperatorByName(operatorName)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"error":        err.Error(),
 						"operatorName": operatorName,
-					}).Error("cannot find operator")
-				}
-				select {
-				case <-svc.operatorRequestQueueFree[operatorName]:
+					}).Info("start processing retries")
 					processRetries(operator.Code)
 				}
 
 			}
 		}
-
 	}()
 
 	// create new consumer
@@ -149,7 +146,6 @@ type MTService struct {
 	MOTarifficateRequestsChan        map[string]<-chan amqp_driver.Delivery
 	operatorTarifficateResponsesChan map[string]<-chan amqp_driver.Delivery
 	operatorSMSResponsesChan         map[string]<-chan amqp_driver.Delivery
-	operatorRequestQueueFree         map[string]chan struct{}
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
 	publisher                        *amqp.Notifier
