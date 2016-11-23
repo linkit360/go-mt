@@ -64,9 +64,9 @@ func processSMSResponses(deliveries <-chan amqp.Delivery) {
 
 		go func(r rec.Record) {
 			if err := handleSMSResponse(e.EventData); err != nil {
-				ResponseErrors.Inc()
+				ResponseSMSErrors.Inc()
 			} else {
-				ResponseSuccess.Inc()
+				ResponseSMSSuccess.Inc()
 			}
 			msg.Ack(false)
 		}(e.EventData)

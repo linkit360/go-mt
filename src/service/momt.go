@@ -170,19 +170,21 @@ func handle(subscription rec.Record) error {
 			logCtx.Debug("no previous subscription found")
 			err = nil
 		} else if err != nil {
-			logCtx.WithField("error", err.Error()).Error("get previous subscription error")
-			err = fmt.Errorf("Get previous subscription: %s", err.Error())
 			Errors.Inc()
+
+			err = fmt.Errorf("Get previous subscription: %s", err.Error())
+			logCtx.WithField("error", err.Error()).Error("get previous subscription")
 			return err
 		} else {
 			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
 			paidHours := (time.Duration(mService.PaidHours) * time.Hour).Hours()
 			if sincePrevious < paidHours {
+				Rejected.Inc()
+
 				logCtx.WithFields(log.Fields{
 					"sincePrevious": sincePrevious,
 					"paidHours":     paidHours,
 				}).Info("paid hours aren't passed")
-				Rejected.Inc()
 				subscription.Result = "rejected"
 				subscription.SubscriptionStatus = "rejected"
 				subscription.WriteSubscriptionStatus()
@@ -202,7 +204,6 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("blacklist checks..")
 	blackListed, err := inmem_client.IsBlackListed(subscription.Msisdn)
 	if err != nil {
-		// todo rpc metric
 		Errors.Inc()
 
 		err := fmt.Errorf("inmem_client.IsBlackListed: %s", err.Error())
@@ -220,7 +221,6 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("postpaid checks..")
 	postPaid, err := inmem_client.IsPostPaid(subscription.Msisdn)
 	if err != nil {
-		// todo rpc metric
 		Errors.Inc()
 
 		err := fmt.Errorf("inmem_client.IsPostPaid: %s", err.Error())
@@ -256,19 +256,24 @@ func handle(subscription rec.Record) error {
 	logCtx.Debug("send to operator")
 	operator, err := inmem_client.GetOperatorByCode(subscription.OperatorCode)
 	if err != nil {
+		OperatorNotApplicable.Inc()
+
 		err := fmt.Errorf("inmem_client.GetOperatorByCode %s: %s", subscription.OperatorCode, err.Error())
-		logCtx.WithField("error", err.Error()).Error("can't get operator by code")
+		logCtx.WithField("error", err.Error()).Error("can't process")
 		return err
 	}
 	operatorName := strings.ToLower(operator.Name)
 	queue, ok := svc.conf.QueueOperators[operatorName]
 	if !ok {
+		OperatorNotEnabled.Inc()
 		err := fmt.Errorf("Name %s is not enabled", operatorName)
-		logCtx.WithField("error", err.Error()).Error("not enabled in config")
+		logCtx.WithField("error", err.Error()).Error("can't process")
 		return err
 	}
 
 	if err := notifyOperatorRequest(queue.Requests, "charge", subscription); err != nil {
+		NotifyErrors.Inc()
+
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue.Requests)
 		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
 		return err

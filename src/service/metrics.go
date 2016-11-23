@@ -10,6 +10,7 @@ var (
 	SinceSuccessPaid            prometheus.Gauge
 	OperatorNotEnabled          m.Gauge
 	OperatorNotApplicable       m.Gauge
+	NotifyErrors                m.Gauge
 	Errors                      m.Gauge
 	PostPaid                    m.Gauge
 	Rejected                    m.Gauge
@@ -23,6 +24,8 @@ var (
 	ResponseDropped             m.Gauge
 	ResponseErrors              m.Gauge
 	ResponseSuccess             m.Gauge
+	ResponseSMSErrors           m.Gauge
+	ResponseSMSSuccess          m.Gauge
 )
 
 func newGaugeResponse(name, help string) m.Gauge {
@@ -52,6 +55,7 @@ func initMetrics() {
 	TarificateResponsesReceived = newGaugeOperaor("tarifficate_request", "tarifficate request")
 	OperatorNotEnabled = newGaugeOperaor("not_enabled", "operator is not enabled in config")
 	OperatorNotApplicable = newGaugeOperaor("not_applicable", "there is no such operator in database")
+	NotifyErrors = m.NewGauge("", "", "notify_errors", "notify errors")
 
 	PostPaid = newGaugeNotPaid("postpaid", "Postpaid count")
 	Rejected = newGaugeNotPaid("rejected", "Rejected count")
@@ -65,5 +69,7 @@ func initMetrics() {
 	ResponseDropped = newGaugeResponse("dropped", "dropped")
 	ResponseErrors = newGaugeResponse("errors", "errors")
 	ResponseSuccess = newGaugeResponse("success", "success")
+	ResponseSMSErrors = newGaugeResponse("sms_errors", "errors")
+	ResponseSMSSuccess = newGaugeResponse("sms_success", "success")
 
 }
