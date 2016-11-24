@@ -16,7 +16,6 @@ operators:
     name: mobilink
     retries_enabled: true
     get_from_db_retry_count: 500
-    get_from_db_retry_period_seconds: 10
 
 
 db:

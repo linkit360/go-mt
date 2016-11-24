@@ -19,6 +19,9 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 			"body": string(msg.Body),
 		}).Debug("start process")
 
+		// do not do it inside the go func: ineffective
+		msg.Ack(false)
+
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			ResponseDropped.Inc()
@@ -28,17 +31,15 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 				"msg":      "dropped",
 				"response": string(msg.Body),
 			}).Error("consume failed")
-			msg.Ack(false)
 			continue
 		}
-
 		go func(r rec.Record) {
 			if err := handleResponse(e.EventData); err != nil {
 				ResponseErrors.Inc()
 			} else {
 				ResponseSuccess.Inc()
 			}
-			msg.Ack(false)
+
 		}(e.EventData)
 	}
 }
@@ -62,13 +63,15 @@ func processSMSResponses(deliveries <-chan amqp.Delivery) {
 			continue
 		}
 
+		// do not do it inside the go func: ineffective
+		msg.Ack(false)
+
 		go func(r rec.Record) {
 			if err := handleSMSResponse(e.EventData); err != nil {
 				ResponseSMSErrors.Inc()
 			} else {
 				ResponseSMSSuccess.Inc()
 			}
-			msg.Ack(false)
 		}(e.EventData)
 	}
 }

@@ -44,6 +44,8 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 			"body": string(msg.Body),
 		}).Debug("start process")
 
+		msg.Ack(false)
+
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			SubscritpionsDropped.Inc()
@@ -53,7 +55,6 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 				"msg":         "dropped",
 				"tarifficate": string(msg.Body),
 			}).Error("consume")
-			msg.Ack(false)
 			continue
 		}
 
@@ -63,7 +64,6 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 			} else {
 				SubscritpionsSent.Inc()
 			}
-			msg.Ack(false)
 		}(e.EventData)
 	}
 }
@@ -238,6 +238,7 @@ func handle(subscription rec.Record) error {
 	// send everything, pixels module will decide to send pixel, or not to send
 	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
 		Pixel.Inc()
+
 		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
 		notifyPixel(pixels.Pixel{
 			Tid:            subscription.Tid,
@@ -271,7 +272,7 @@ func handle(subscription rec.Record) error {
 		return err
 	}
 
-	priority := 0
+	priority := uint8(0)
 	if subscription.AttemptsCount == 0 {
 		priority = 1
 	}

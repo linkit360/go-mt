@@ -189,11 +189,11 @@ func notifyPixel(msg pixels.Pixel) error {
 		"queue": svc.conf.Queues.Pixels,
 		"event": eventName,
 	}).Debug("sent")
-	svc.publisher.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, body})
+	svc.publisher.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body})
 	return nil
 }
 
-func notifyOperatorRequest(queue string, priority int, eventName string, msg interface{}) error {
+func notifyOperatorRequest(queue string, priority uint8, eventName string, msg interface{}) error {
 	if eventName == "" {
 		return fmt.Errorf("QueueSend: %s", "empty event name")
 	}
