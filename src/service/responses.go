@@ -95,7 +95,7 @@ func smsSend(record rec.Record, msg string) error {
 		return fmt.Errorf("Name %s is not enabled", operatorName)
 	}
 	record.SMSText = msg
-	if err := notifyOperatorRequest(queue.SMSRequest, "send_sms", record); err != nil {
+	if err := notifyOperatorRequest(queue.SMSRequest, 0, "send_sms", record); err != nil {
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
 		log.WithFields(log.Fields{
 			"tid":    record.Tid,

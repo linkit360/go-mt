@@ -193,7 +193,7 @@ func notifyPixel(msg pixels.Pixel) error {
 	return nil
 }
 
-func notifyOperatorRequest(queue, eventName string, msg interface{}) error {
+func notifyOperatorRequest(queue string, priority int, eventName string, msg interface{}) error {
 	if eventName == "" {
 		return fmt.Errorf("QueueSend: %s", "empty event name")
 	}
@@ -214,6 +214,10 @@ func notifyOperatorRequest(queue, eventName string, msg interface{}) error {
 		"queue": queue,
 		"event": eventName,
 	}).Debug("sent")
-	svc.publisher.Publish(amqp.AMQPMessage{queue, body})
+	svc.publisher.Publish(amqp.AMQPMessage{
+		QueueName: queue,
+		Priority:  priority,
+		Body:      body,
+	})
 	return nil
 }

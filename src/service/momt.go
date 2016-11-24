@@ -271,7 +271,11 @@ func handle(subscription rec.Record) error {
 		return err
 	}
 
-	if err := notifyOperatorRequest(queue.Requests, "charge", subscription); err != nil {
+	priority := 0
+	if subscription.AttemptsCount == 0 {
+		priority = 1
+	}
+	if err := notifyOperatorRequest(queue.Requests, priority, "charge", subscription); err != nil {
 		NotifyErrors.Inc()
 
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue.Requests)
