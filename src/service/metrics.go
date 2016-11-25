@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 
 	m "github.com/vostrok/utils/metrics"
@@ -49,6 +51,11 @@ func initMetrics() {
 		"since_success_paid_seconds",
 		"Seconds ago from successful payment from any operator",
 	)
+	go func() {
+		for range time.Tick(time.Second) {
+			SinceSuccessPaid.Inc()
+		}
+	}()
 	Errors = newGaugeNotPaid("errors", "Errors during processing")
 
 	TarificateFailed = newGaugeNotPaid("tarificate_falied", "Tariffication attempt errors")
@@ -71,5 +78,30 @@ func initMetrics() {
 	ResponseSuccess = newGaugeResponse("success", "success")
 	ResponseSMSErrors = newGaugeResponse("sms_errors", "errors")
 	ResponseSMSSuccess = newGaugeResponse("sms_success", "success")
+	go func() {
+		for range time.Tick(time.Minute) {
+			Errors.Update()
 
+			TarificateFailed.Update()
+			TarificateResponsesReceived.Update()
+			OperatorNotEnabled.Update()
+			OperatorNotApplicable.Update()
+			NotifyErrors.Update()
+
+			PostPaid.Update()
+			Rejected.Update()
+			BlackListed.Update()
+			Pixel.Update()
+
+			SubscritpionsDropped.Update()
+			SubscritpionsErrors.Update()
+			SubscritpionsSent.Update()
+
+			ResponseDropped.Update()
+			ResponseErrors.Update()
+			ResponseSuccess.Update()
+			ResponseSMSErrors.Update()
+			ResponseSMSSuccess.Update()
+		}
+	}()
 }

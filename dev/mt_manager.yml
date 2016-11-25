@@ -3,10 +3,6 @@ name: mumbai_mt_manager
 server:
   port: 50305
 
-inmem_client:
-  dsn: localhost:50307
-  timeout: 10
-
 service:
   queues:
     pixels: pixels
@@ -18,6 +14,9 @@ operators:
     get_from_db_retry_count: 500
     operator_request_queue_size: 1
 
+inmem_client:
+  dsn: localhost:50307
+  timeout: 10
 
 db:
   conn_ttl: -1
@@ -31,7 +30,17 @@ db:
   ssl_mode: disable
   table_prefix: xmp_
 
-notifier:
+consumer:
+  conn:
+      user: linkit
+      pass: dg-U_oHhy7-
+      host: 35.154.8.158
+      port: 5672
+  queue_prefetch_count: 4
+  binding_key: ""
+  reconnect_delay: 10
+
+publisher:
   queue:
     pixels: pixels
 
