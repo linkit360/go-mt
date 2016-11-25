@@ -72,19 +72,28 @@ func processRetries(operatorCode int64, retryCount int) {
 	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
+			"code":  operatorCode,
+			"count": retryCount,
 			"error": err.Error(),
 		}).Error("get retries")
 		return
 	}
 	log.WithFields(log.Fields{
-		"count": len(retries),
+		"code":      operatorCode,
+		"count":     retryCount,
+		"gotFromDB": len(retries),
 	}).Info("retries")
+	if len(retries) == 0 {
+		return
+	}
 
 	begin := time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
-			"took": time.Since(begin),
-		}).Debug("process retries")
+			"code":      operatorCode,
+			"gotFromDB": len(retries),
+			"took":      time.Since(begin),
+		}).Debug("done process retries")
 	}()
 	for _, r := range retries {
 		now := time.Now()

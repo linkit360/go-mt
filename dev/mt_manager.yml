@@ -16,6 +16,7 @@ operators:
     name: mobilink
     retries_enabled: true
     get_from_db_retry_count: 500
+    operator_request_queue_size: 1
 
 
 db:

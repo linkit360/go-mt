@@ -51,11 +51,6 @@ func Init(
 				if !operatorConf.RetriesEnabled {
 					continue
 				}
-				log.WithFields(log.Fields{
-					"enabled":      operatorConf.RetriesEnabled,
-					"operatorName": operatorName,
-				}).Debug("check retries")
-
 				queue, ok := queueOperators[operatorName]
 				if !ok {
 					log.WithFields(log.Fields{
@@ -75,20 +70,18 @@ func Init(
 					"operator":  operatorName,
 					"queue":     queue.Requests,
 					"queueSize": queueSize,
+					"wiatFor":   operatorConf.OperatorRequestQueueSize,
 					"cond":      queueSize <= operatorConf.OperatorRequestQueueSize,
-				}).Debug("got size")
+				}).Debug("got queue size")
 				if queueSize <= operatorConf.OperatorRequestQueueSize {
 					operator, err := inmem_client.GetOperatorByName(operatorName)
 					if err != nil {
 						log.WithFields(log.Fields{
-							"error":        err.Error(),
-							"operatorName": operatorName,
-						}).Error("cannot find operator")
+							"error":    err.Error(),
+							"operator": operatorName,
+						}).Error("cannot find operator by operator name")
 						continue
 					}
-					log.WithFields(log.Fields{
-						"operatorName": operatorName,
-					}).Info("start processing retries")
 					processRetries(operator.Code, operatorConf.GetFromDBRetryCount)
 				}
 
