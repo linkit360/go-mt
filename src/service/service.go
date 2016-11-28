@@ -91,12 +91,7 @@ func Init(
 		}
 	}()
 
-	// create new consumer
-	svc.consumer = amqp.NewConsumer(consumerConfig)
-	if err := svc.consumer.Connect(); err != nil {
-		log.Fatal("rbmq consumer connect:", err.Error())
-	}
-
+	svc.consumer = make(map[string]Consumers, len(operatorConfig))
 	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
 	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
 	svc.operatorSMSResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
@@ -104,9 +99,24 @@ func Init(
 	for operatorName, queue := range queueOperators {
 		log.Info("initialising operator " + operatorName)
 
+		svc.consumer[operatorName] = Consumers{
+			Mo:           amqp.NewConsumer(consumerConfig, queue.MOTarifficate),
+			Responses:    amqp.NewConsumer(consumerConfig, queue.Responses),
+			SMSResponses: amqp.NewConsumer(consumerConfig, queue.SMSResponse),
+		}
+		if err := svc.consumer[operatorName].Mo.Connect(); err != nil {
+			log.Fatal("rbmq consumer connect:", err.Error())
+		}
+		if err := svc.consumer[operatorName].Responses.Connect(); err != nil {
+			log.Fatal("rbmq consumer connect:", err.Error())
+		}
+		if err := svc.consumer[operatorName].SMSResponses.Connect(); err != nil {
+			log.Fatal("rbmq consumer connect:", err.Error())
+		}
+
 		// queue for mo tarifficate requests
 		amqp.InitQueue(
-			svc.consumer,
+			svc.consumer[operatorName].Mo,
 			svc.MOTarifficateRequestsChan[operatorName],
 			processSubscriptions,
 			sConf.ThreadsCount,
@@ -116,7 +126,7 @@ func Init(
 
 		// queue for responses
 		amqp.InitQueue(
-			svc.consumer,
+			svc.consumer[operatorName].Responses,
 			svc.operatorTarifficateResponsesChan[operatorName],
 			processResponses,
 			sConf.ThreadsCount,
@@ -126,7 +136,7 @@ func Init(
 
 		// queue for sms responses
 		amqp.InitQueue(
-			svc.consumer,
+			svc.consumer[operatorName].SMSResponses,
 			svc.operatorSMSResponsesChan[operatorName],
 			processSMSResponses,
 			sConf.ThreadsCount,
@@ -143,8 +153,15 @@ type MTService struct {
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
 	notifier                         *amqp.Notifier
-	consumer                         *amqp.Consumer
+	consumer                         map[string]Consumers
 }
+
+type Consumers struct {
+	Mo           *amqp.Consumer
+	Responses    *amqp.Consumer
+	SMSResponses *amqp.Consumer
+}
+
 type OperatorQueueConfig struct {
 	NewSubscription string `yaml:"-"`
 	Requests        string `yaml:"-"`
