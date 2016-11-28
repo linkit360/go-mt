@@ -33,7 +33,9 @@ func Init(
 ) {
 	log.SetLevel(log.DebugLevel)
 
-	inmem_client.Init(inMemConfig)
+	if err := inmem_client.Init(inMemConfig); err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
+	}
 
 	svc.conf = sConf
 	svc.dbConf = dbConf
@@ -42,7 +44,7 @@ func Init(
 
 	initMetrics()
 
-	svc.publisher = amqp.NewNotifier(publisherConf)
+	svc.notifier = amqp.NewNotifier(publisherConf)
 
 	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
@@ -57,7 +59,7 @@ func Init(
 						"operator": operatorName,
 					}).Fatal("queue is not defined")
 				}
-				queueSize, err := svc.publisher.GetQueueSize(queue.Requests)
+				queueSize, err := svc.notifier.GetQueueSize(queue.Requests)
 				if err != nil {
 					log.WithFields(log.Fields{
 						"operator": operatorName,
@@ -140,7 +142,7 @@ type MTService struct {
 	operatorSMSResponsesChan         map[string]<-chan amqp_driver.Delivery
 	conf                             MTServiceConfig
 	dbConf                           db.DataBaseConfig
-	publisher                        *amqp.Notifier
+	notifier                         *amqp.Notifier
 	consumer                         *amqp.Consumer
 }
 type OperatorQueueConfig struct {
@@ -182,7 +184,7 @@ func notifyPixel(msg pixels.Pixel) error {
 		"queue": svc.conf.Queues.Pixels,
 		"event": eventName,
 	}).Debug("sent")
-	svc.publisher.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body})
+	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body})
 	return nil
 }
 
@@ -207,7 +209,7 @@ func notifyOperatorRequest(queue string, priority uint8, eventName string, msg i
 		"queue": queue,
 		"event": eventName,
 	}).Debug("sent")
-	svc.publisher.Publish(amqp.AMQPMessage{
+	svc.notifier.Publish(amqp.AMQPMessage{
 		QueueName: queue,
 		Priority:  priority,
 		Body:      body,
