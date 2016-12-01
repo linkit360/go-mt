@@ -10,6 +10,7 @@ import (
 	"github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
+	pixels "github.com/vostrok/pixels/src/notifier"
 	rec "github.com/vostrok/utils/rec"
 )
 
@@ -135,7 +136,26 @@ func handleResponse(record rec.Record) error {
 		"tid": record.Tid,
 	})
 	logCtx.Info("start processing response")
+	// send everything, pixels module will decide to send pixel, or not to send
+	if record.Pixel != "" &&
+		record.AttemptsCount == 0 &&
+		record.SubscriptionStatus != "postpaid" {
+		Pixel.Inc()
 
+		logCtx.WithField("pixel", record.Pixel).Debug("enqueue pixel")
+		notifyPixel(pixels.Pixel{
+			Tid:            record.Tid,
+			Msisdn:         record.Msisdn,
+			CampaignId:     record.CampaignId,
+			SubscriptionId: record.SubscriptionId,
+			OperatorCode:   record.OperatorCode,
+			CountryCode:    record.CountryCode,
+			Pixel:          record.Pixel,
+			Publisher:      record.Publisher,
+		})
+	} else {
+		logCtx.Debug("pixel is empty")
+	}
 	if record.OperatorErr != "" {
 		TarificateFailed.Inc()
 	}

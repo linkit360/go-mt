@@ -26,7 +26,6 @@ import (
 	"github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
-	pixels "github.com/vostrok/pixels/src/notifier"
 	rec "github.com/vostrok/utils/rec"
 )
 
@@ -243,24 +242,6 @@ func handle(subscription rec.Record) error {
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
-	}
-	// send everything, pixels module will decide to send pixel, or not to send
-	if subscription.Pixel != "" && subscription.AttemptsCount == 0 {
-		Pixel.Inc()
-
-		logCtx.WithField("pixel", subscription.Pixel).Debug("enqueue pixel")
-		notifyPixel(pixels.Pixel{
-			Tid:            subscription.Tid,
-			Msisdn:         subscription.Msisdn,
-			CampaignId:     subscription.CampaignId,
-			SubscriptionId: subscription.SubscriptionId,
-			OperatorCode:   subscription.OperatorCode,
-			CountryCode:    subscription.CountryCode,
-			Pixel:          subscription.Pixel,
-			Publisher:      subscription.Publisher,
-		})
-	} else {
-		logCtx.Debug("pixel is empty")
 	}
 
 	logCtx.Debug("send to operator")
