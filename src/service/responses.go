@@ -162,6 +162,16 @@ func handleResponse(record rec.Record) error {
 	if record.SubscriptionStatus == "postpaid" {
 		PostPaid.Inc()
 		logCtx.Debug("number is postpaid")
+
+		// order is important
+		// if we ad postpaid below in the table (first)
+		// and after that record transaction, then
+		// we do not notice it in inmem and
+		// subscription redirects again to operator request
+		record.SubscriptionStatus = "postpaid"
+		record.WriteSubscriptionStatus()
+		inmem_client.PostPaidPush(record.Msisdn)
+
 		if err := record.AddPostPaidNumber(); err != nil {
 			err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
 			logCtx.WithField("error", err.Error()).Error("add postpaid error")
@@ -169,9 +179,6 @@ func handleResponse(record rec.Record) error {
 			return err
 		}
 		logCtx.Info("new postpaid number added")
-		inmem_client.PostPaidPush(record.Msisdn)
-		record.SubscriptionStatus = "postpaid"
-		record.WriteSubscriptionStatus()
 		return nil
 	}
 
