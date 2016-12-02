@@ -82,6 +82,7 @@ func processRetries(operatorCode int64, retryCount int) {
 		"count":     retryCount,
 		"gotFromDB": len(retries),
 	}).Info("retries")
+
 	if len(retries) == 0 {
 		return
 	}
@@ -148,7 +149,10 @@ func processRetries(operatorCode int64, retryCount int) {
 
 func handle(subscription rec.Record) error {
 
-	logCtx := log.WithFields(log.Fields{"tid": subscription.Tid})
+	logCtx := log.WithFields(log.Fields{
+		"tid":            subscription.Tid,
+		"attempts_count": subscription.AttemptsCount,
+	})
 	logCtx.Debug("start processsing")
 
 	mService, err := inmem_client.GetServiceById(subscription.ServiceId)
@@ -205,6 +209,7 @@ func handle(subscription rec.Record) error {
 				}).Debug("previous subscription time elapsed, proceed")
 			}
 		}
+
 	} else {
 		logCtx.Debug("service paid hours == 0")
 	}
