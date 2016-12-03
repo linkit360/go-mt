@@ -165,25 +165,32 @@ func handleResponse(record rec.Record) error {
 		// subscription redirects again to operator request
 		record.SubscriptionStatus = "postpaid"
 		record.WriteSubscriptionStatus()
-		if err := inmem_client.PostPaidPush(record.Msisdn); err != nil {
-			err = fmt.Errorf("inmem_client.PostPaidPush: %s", err.Error())
-			logCtx.WithFields(log.Fields{
-				"msisdn": record.Msisdn,
-				"error":  err.Error(),
-			}).Error("add inmem postpaid error")
-		}
 
-		if err := record.AddPostPaidNumber(); err != nil {
-			err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
-			logCtx.WithFields(log.Fields{
-				"msisdn": record.Msisdn,
-				"error":  err.Error(),
-			}).Error("add postpaid error")
-			Errors.Inc()
-			return err
+		// update postpaid status only if it wasnt already added
+		postPaid, _ := inmem_client.IsPostPaid(record.Msisdn)
+		if !postPaid {
+			if err := inmem_client.PostPaidPush(record.Msisdn); err != nil {
+				Errors.Inc()
+				err = fmt.Errorf("inmem_client.PostPaidPush: %s", err.Error())
+				logCtx.WithFields(log.Fields{
+					"msisdn": record.Msisdn,
+					"error":  err.Error(),
+				}).Error("add inmem postpaid error")
+			}
+			if err := record.AddPostPaidNumber(); err != nil {
+				Errors.Inc()
+				err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
+				logCtx.WithFields(log.Fields{
+					"msisdn": record.Msisdn,
+					"error":  err.Error(),
+				}).Error("add postpaid error")
+			}
+			logCtx.Info("new postpaid number added")
+		} else {
+			logCtx.Info("already in postpaid inmem")
 		}
-		logCtx.Info("new postpaid number added")
 		return nil
+
 	}
 
 	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
