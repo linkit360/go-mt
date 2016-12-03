@@ -3,9 +3,11 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	cache "github.com/patrickmn/go-cache"
 	amqp_driver "github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -32,15 +34,15 @@ func Init(
 
 ) {
 	log.SetLevel(log.DebugLevel)
+	rec.Init(dbConf)
+	initCache()
 
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
-
 	svc.conf = sConf
 	svc.dbConf = dbConf
 	svc.conf.QueueOperators = queueOperators
-	rec.Init(dbConf)
 
 	initMetrics()
 
@@ -154,6 +156,7 @@ type MTService struct {
 	dbConf                           db.DataBaseConfig
 	notifier                         *amqp.Notifier
 	consumer                         map[string]Consumers
+	prevCache                        *cache.Cache
 }
 
 type Consumers struct {
@@ -205,7 +208,7 @@ func notifyPixel(msg pixels.Pixel) error {
 	return nil
 }
 
-func notifyOperatorRequest(queue string, priority uint8, eventName string, msg interface{}) error {
+func notifyOperatorRequest(queue string, priority uint8, eventName string, msg rec.Record) error {
 	if eventName == "" {
 		return fmt.Errorf("QueueSend: %s", "empty event name")
 	}
@@ -222,7 +225,7 @@ func notifyOperatorRequest(queue string, priority uint8, eventName string, msg i
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 	log.WithFields(log.Fields{
-		"data":  fmt.Sprintf("%#v", msg),
+		"tid":   msg.Tid,
 		"queue": queue,
 		"event": eventName,
 	}).Debug("sent")
@@ -232,4 +235,38 @@ func notifyOperatorRequest(queue string, priority uint8, eventName string, msg i
 		Body:      body,
 	})
 	return nil
+}
+
+func initCache() {
+	prev, err := rec.LoadPreviousSubscriptions()
+	if err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
+	}
+	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
+	svc.prevCache = cache.New(24*time.Hour, time.Minute)
+	for _, v := range prev {
+		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
+		svc.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
+	}
+}
+func getPrevSubscriptionCache(msisdn string, serviceId int64, tid string) bool {
+	key := msisdn + strconv.FormatInt(serviceId, 10)
+	_, found := svc.prevCache.Get(key)
+	log.WithFields(log.Fields{
+		"tid":   tid,
+		"key":   key,
+		"found": found,
+	}).Debug("get previous subscription cache")
+	return found
+}
+func setPrevSubscriptionCache(msisdn string, serviceId int64, tid string) {
+	key := msisdn + strconv.FormatInt(serviceId, 10)
+	_, found := svc.prevCache.Get(key)
+	if !found {
+		svc.prevCache.Set(key, struct{}{}, 24*time.Hour)
+		log.WithFields(log.Fields{
+			"tid": tid,
+			"key": key,
+		}).Debug("set previous subscription cache")
+	}
 }

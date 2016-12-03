@@ -15,14 +15,12 @@ package service
 // listen to operator responses queue
 // make all needed operations with retries, subscritpions to mark records as processed
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-
 	"github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -57,13 +55,11 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 			continue
 		}
 
-		go func(r rec.Record) {
-			if err := handle(r); err != nil {
-				SubscritpionsErrors.Inc()
-			} else {
-				SubscritpionsSent.Inc()
-			}
-		}(e.EventData)
+		if err := handle(e.EventData); err != nil {
+			SubscritpionsErrors.Inc()
+		} else {
+			SubscritpionsSent.Inc()
+		}
 	}
 }
 
@@ -136,9 +132,7 @@ func processRetries(operatorCode int64, retryCount int) {
 		}
 
 		if makeAttempt {
-			go func(rr rec.Record) {
-				handle(rr)
-			}(r)
+			handle(r)
 		} else {
 			log.WithFields(log.Fields{
 				"tid": r.Tid,
@@ -177,41 +171,19 @@ func handle(subscription rec.Record) error {
 	// give them content, and skip tariffication
 	if mService.PaidHours > 0 && subscription.AttemptsCount == 0 {
 		logCtx.WithField("paidHours", mService.PaidHours).Debug("service paid hours > 0")
-		previous, err := subscription.GetPreviousSubscription(mService.PaidHours)
-		if err == sql.ErrNoRows {
-			logCtx.Debug("no previous subscription found")
-			err = nil
-		} else if err != nil {
-			Errors.Inc()
-
-			err = fmt.Errorf("Get previous subscription: %s", err.Error())
-			logCtx.WithField("error", err.Error()).Error("get previous subscription")
-			return err
+		hasPrevious := getPrevSubscriptionCache(
+			subscription.Msisdn, subscription.ServiceId, subscription.Tid)
+		if hasPrevious {
+			Rejected.Inc()
+			logCtx.WithFields(log.Fields{}).Info("paid hours aren't passed")
+			subscription.Result = "rejected"
+			subscription.SubscriptionStatus = "rejected"
+			subscription.WriteSubscriptionStatus()
+			subscription.WriteTransaction()
+			return nil
 		} else {
-			sincePrevious := time.Now().Sub(previous.CreatedAt).Hours()
-			paidHours := (time.Duration(mService.PaidHours) * time.Hour).Hours()
-			if sincePrevious < paidHours {
-				Rejected.Inc()
-
-				logCtx.WithFields(log.Fields{
-					"sincePrevious": sincePrevious,
-					"paidHours":     paidHours,
-				}).Info("paid hours aren't passed")
-				subscription.Result = "rejected"
-				subscription.SubscriptionStatus = "rejected"
-				subscription.WriteSubscriptionStatus()
-				subscription.WriteTransaction()
-				return nil
-			} else {
-				logCtx.WithFields(log.Fields{
-					"sincePrevious": sincePrevious,
-					"paidHours":     paidHours,
-				}).Debug("previous subscription time elapsed, proceed")
-			}
+			logCtx.Debug("no previous subscription found")
 		}
-
-	} else {
-		logCtx.Debug("service paid hours == 0")
 	}
 
 	logCtx.Debug("blacklist checks..")
@@ -229,9 +201,10 @@ func handle(subscription rec.Record) error {
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
 		return nil
+	} else {
+		logCtx.Debug("not blacklisted, start postpaid checks..")
 	}
 
-	logCtx.Debug("postpaid checks..")
 	postPaid, err := inmem_client.IsPostPaid(subscription.Msisdn)
 	if err != nil {
 		Errors.Inc()
@@ -247,9 +220,10 @@ func handle(subscription rec.Record) error {
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
 		return nil
+	} else {
+		logCtx.Debug("not postpaid, send to operator..")
 	}
 
-	logCtx.Debug("send to operator")
 	operator, err := inmem_client.GetOperatorByCode(subscription.OperatorCode)
 	if err != nil {
 		OperatorNotApplicable.Inc()

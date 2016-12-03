@@ -18,7 +18,7 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 	for msg := range deliveries {
 		log.WithFields(log.Fields{
 			"body": string(msg.Body),
-		}).Debug("start process")
+		}).Debug("start process response")
 
 		// do not do it inside the go func: ineffective
 		msg.Ack(false)
@@ -34,14 +34,11 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 			}).Error("consume failed")
 			continue
 		}
-		go func(r rec.Record) {
-			if err := handleResponse(e.EventData); err != nil {
-				ResponseErrors.Inc()
-			} else {
-				ResponseSuccess.Inc()
-			}
-
-		}(e.EventData)
+		if err := handleResponse(e.EventData); err != nil {
+			ResponseErrors.Inc()
+		} else {
+			ResponseSuccess.Inc()
+		}
 	}
 }
 
@@ -67,13 +64,11 @@ func processSMSResponses(deliveries <-chan amqp.Delivery) {
 		// do not do it inside the go func: ineffective
 		msg.Ack(false)
 
-		go func(r rec.Record) {
-			if err := handleSMSResponse(e.EventData); err != nil {
-				ResponseSMSErrors.Inc()
-			} else {
-				ResponseSMSSuccess.Inc()
-			}
-		}(e.EventData)
+		if err := handleSMSResponse(e.EventData); err != nil {
+			ResponseSMSErrors.Inc()
+		} else {
+			ResponseSMSSuccess.Inc()
+		}
 	}
 }
 
@@ -170,11 +165,20 @@ func handleResponse(record rec.Record) error {
 		// subscription redirects again to operator request
 		record.SubscriptionStatus = "postpaid"
 		record.WriteSubscriptionStatus()
-		inmem_client.PostPaidPush(record.Msisdn)
+		if err := inmem_client.PostPaidPush(record.Msisdn); err != nil {
+			err = fmt.Errorf("inmem_client.PostPaidPush: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"msisdn": record.Msisdn,
+				"error":  err.Error(),
+			}).Error("add inmem postpaid error")
+		}
 
 		if err := record.AddPostPaidNumber(); err != nil {
 			err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
-			logCtx.WithField("error", err.Error()).Error("add postpaid error")
+			logCtx.WithFields(log.Fields{
+				"msisdn": record.Msisdn,
+				"error":  err.Error(),
+			}).Error("add postpaid error")
 			Errors.Inc()
 			return err
 		}
@@ -182,6 +186,7 @@ func handleResponse(record rec.Record) error {
 		return nil
 	}
 
+	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 	if len(record.OperatorToken) > 0 && record.Paid {
 		SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"
