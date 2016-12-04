@@ -34,7 +34,7 @@ consumer:
   conn:
       user: linkit
       pass: dg-U_oHhy7-
-      host: 35.154.8.158
+      host: localhost
       port: 5672
   queue_prefetch_count: 4
   binding_key: ""
@@ -48,6 +48,6 @@ publisher:
     conn:
       user: linkit
       pass: dg-U_oHhy7-
-      host: 35.154.8.158
+      host: localhost
       port: 5672
     chan_capacity: 10000

@@ -34,8 +34,8 @@ func RunServer() {
 	log.WithField("CPUCount", nuCPU)
 
 	r := gin.New()
-
 	metrics.AddHandler(r)
+	service.AddRetriesHandler(r)
 
 	r.Run(":" + appConfig.Server.Port)
 	log.WithField("port", appConfig.Server.Port).Info("mt init")

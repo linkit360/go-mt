@@ -17,6 +17,7 @@ var (
 	PostPaid                    m.Gauge
 	Rejected                    m.Gauge
 	BlackListed                 m.Gauge
+	Paid                        m.Gauge
 	Pixel                       m.Gauge
 	SubscritpionsDropped        m.Gauge
 	SubscritpionsErrors         m.Gauge
@@ -67,6 +68,7 @@ func initMetrics() {
 	PostPaid = newGaugeNotPaid("postpaid", "Postpaid count")
 	Rejected = newGaugeNotPaid("rejected", "Rejected count")
 	BlackListed = newGaugeNotPaid("blacklisted", "Blacklisted count")
+
 	Pixel = newGaugeNotPaid("pixel", "Number of new subscriptions with pixel")
 
 	SubscritpionsDropped = newGaugeSubscritpions("dropped", "dropped")
@@ -78,6 +80,9 @@ func initMetrics() {
 	ResponseSuccess = newGaugeResponse("success", "success")
 	ResponseSMSErrors = newGaugeResponse("sms_errors", "errors")
 	ResponseSMSSuccess = newGaugeResponse("sms_success", "success")
+
+	Paid = m.NewGauge("", "", "paid", "paid")
+
 	go func() {
 		for range time.Tick(time.Minute) {
 			Errors.Update()
@@ -91,6 +96,7 @@ func initMetrics() {
 			PostPaid.Update()
 			Rejected.Update()
 			BlackListed.Update()
+			Paid.Update()
 			Pixel.Update()
 
 			SubscritpionsDropped.Update()

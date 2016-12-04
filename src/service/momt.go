@@ -200,6 +200,17 @@ func handle(subscription rec.Record) error {
 		logCtx.Info("blacklisted")
 		subscription.SubscriptionStatus = "blacklisted"
 		subscription.WriteSubscriptionStatus()
+
+		if subscription.AttemptsCount >= 1 {
+			if err := subscription.RemoveRetry(); err != nil {
+				Errors.Inc()
+
+				err = fmt.Errorf("subscription.RemoveRetry :%s", err.Error())
+				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
+			} else {
+				logCtx.Info("remove retry: blacklisted")
+			}
+		}
 		return nil
 	} else {
 		logCtx.Debug("not blacklisted, start postpaid checks..")

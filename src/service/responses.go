@@ -166,6 +166,17 @@ func handleResponse(record rec.Record) error {
 		record.SubscriptionStatus = "postpaid"
 		record.WriteSubscriptionStatus()
 
+		if record.AttemptsCount >= 1 {
+			if err := record.RemoveRetry(); err != nil {
+				Errors.Inc()
+
+				err = fmt.Errorf("record.RemoveRetry :%s", err.Error())
+				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
+			} else {
+				logCtx.Info("remove retry: postpaid")
+			}
+		}
+
 		// update postpaid status only if it wasnt already added
 		postPaid, _ := inmem_client.IsPostPaid(record.Msisdn)
 		if !postPaid {
@@ -195,6 +206,7 @@ func handleResponse(record rec.Record) error {
 
 	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 	if len(record.OperatorToken) > 0 && record.Paid {
+		Paid.Inc()
 		SinceSuccessPaid.Set(.0)
 		record.SubscriptionStatus = "paid"
 		if record.AttemptsCount >= 1 {
