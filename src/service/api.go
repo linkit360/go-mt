@@ -105,7 +105,6 @@ func processPendingRetries(p Params) (count int, err error) {
 			}).Debug("remove retry: " + result)
 			v.RemoveRetry()
 		}
-		return count, nil
 	}
 	return count, nil
 }

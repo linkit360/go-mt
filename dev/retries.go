@@ -20,7 +20,7 @@ type conf struct {
 }
 
 func main() {
-	cfg := flag.String("config", "dev/mt_manager.yml", "configuration yml file")
+	cfg := flag.String("config", "mt_manager.yml", "configuration yml file")
 	flag.Parse()
 
 	var appConfig conf

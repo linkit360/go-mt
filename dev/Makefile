@@ -15,19 +15,10 @@ build:
 	export GOOS=linux; export GOARCH=amd64; \
   go build -ldflags "-s -w" -o bin/mt_manager-linux-amd64
 
+pending:
+	go build -ldflags "-s -w" pending_retries_parse_log.go;
+	scp -i ~/.ssh/mobilink_centos.pem pending_retries_parse_log centos@52.66.23.201:/home/centos/linkit/pending_retries_parse_log
 
-senddev:
-		ssh -i ~/.ssh/mobilink_centos_testing_stage.pem  centos@35.154.8.158 rm /home/centos/linkit/mt_manager-linux-amd64
-		scp -i ~/.ssh/mobilink_centos_testing_stage.pem  bin/mt_manager-linux-amd64 centos@35.154.8.158:/home/centos/linkit/mt_manager-linux-amd64
-		scp -i ~/.ssh/mobilink_centos_testing_stage.pem  dev/mt_manager.yml centos@35.154.8.158:/home/centos/linkit/
-
-config:
-		scp -i ~/.ssh/mobilink_centos_testing_stage.pem  dev/mt_manager.yml centos@35.154.8.158:/home/centos/linkit/
-
-sendprod:
-		ssh -i ~/.ssh/mobilink_centos.pem centos@52.66.23.201    rm /home/centos/linkit/mt_manager-linux-amd64
-		scp -i ~/.ssh/mobilink_centos.pem bin/mt_manager-linux-amd64  centos@52.66.23.201:/home/centos/linkit/mt_manager-linux-amd64
-		scp -i ~/.ssh/mobilink_centos.pem dev/mt_manager.prod.yml centos@52.66.23.201:/home/centos/linkit/
 
 metrics:
 	curl http://localhost:50305/debug/vars

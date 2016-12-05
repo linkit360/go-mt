@@ -230,6 +230,16 @@ func handle(subscription rec.Record) error {
 		logCtx.Info("postpaid")
 		subscription.SubscriptionStatus = "postpaid"
 		subscription.WriteSubscriptionStatus()
+		if subscription.AttemptsCount >= 1 {
+			if err := subscription.RemoveRetry(); err != nil {
+				Errors.Inc()
+
+				err = fmt.Errorf("subscription.RemoveRetry :%s", err.Error())
+				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
+			} else {
+				logCtx.Info("remove retry: postpaid")
+			}
+		}
 		return nil
 	} else {
 		logCtx.Debug("not postpaid, send to operator..")
