@@ -117,8 +117,10 @@ func initMetrics() {
 			ResponseSMSErrors.Update()
 			ResponseSMSSuccess.Update()
 		}
+	}()
 
-		for range time.Tick(time.Duration(5 * time.Minute)) {
+	go func() {
+		for range time.Tick(5 * time.Minute) {
 			retriesCount, err := rec.GetPendingRetriesCount()
 			if err != nil {
 				err = fmt.Errorf("rec.GetPendingRetriesCount: %s", err.Error())
@@ -140,7 +142,6 @@ func initMetrics() {
 			} else {
 				PendingSubscriptionsCount.Set(float64(moCount))
 			}
-
 		}
 	}()
 }

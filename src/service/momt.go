@@ -141,19 +141,19 @@ func processRetries(operatorCode int64, retryCount int) {
 	}
 }
 
-func handle(subscription rec.Record) error {
+func handle(record rec.Record) error {
 
 	logCtx := log.WithFields(log.Fields{
-		"tid":            subscription.Tid,
-		"attempts_count": subscription.AttemptsCount,
+		"tid":            record.Tid,
+		"attempts_count": record.AttemptsCount,
 	})
 	logCtx.Debug("start processsing")
 
-	mService, err := inmem_client.GetServiceById(subscription.ServiceId)
+	mService, err := inmem_client.GetServiceById(record.ServiceId)
 	if err != nil {
 		Errors.Inc()
 
-		err := fmt.Errorf("Service id %d: %s", subscription.ServiceId, err.Error())
+		err := fmt.Errorf("Service id %d: %s", record.ServiceId, err.Error())
 		logCtx.WithField("error", err.Error()).Error("cann't process")
 		return err
 	}
@@ -165,21 +165,21 @@ func handle(subscription rec.Record) error {
 		err := fmt.Errorf("Service price %d is zero or less", mService.Price)
 		return err
 	}
-	subscription.Price = 100 * int(mService.Price)
+	record.Price = 100 * int(mService.Price)
 
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
-	if mService.PaidHours > 0 && subscription.AttemptsCount == 0 {
+	if mService.PaidHours > 0 && record.AttemptsCount == 0 {
 		logCtx.WithField("paidHours", mService.PaidHours).Debug("service paid hours > 0")
 		hasPrevious := getPrevSubscriptionCache(
-			subscription.Msisdn, subscription.ServiceId, subscription.Tid)
+			record.Msisdn, record.ServiceId, record.Tid)
 		if hasPrevious {
 			Rejected.Inc()
 			logCtx.WithFields(log.Fields{}).Info("paid hours aren't passed")
-			subscription.Result = "rejected"
-			subscription.SubscriptionStatus = "rejected"
-			subscription.WriteSubscriptionStatus()
-			subscription.WriteTransaction()
+			record.Result = "rejected"
+			record.SubscriptionStatus = "rejected"
+			record.WriteSubscriptionStatus()
+			record.WriteTransaction()
 			return nil
 		} else {
 			logCtx.Debug("no previous subscription found")
@@ -187,7 +187,7 @@ func handle(subscription rec.Record) error {
 	}
 
 	logCtx.Debug("blacklist checks..")
-	blackListed, err := inmem_client.IsBlackListed(subscription.Msisdn)
+	blackListed, err := inmem_client.IsBlackListed(record.Msisdn)
 	if err != nil {
 		Errors.Inc()
 
@@ -198,11 +198,11 @@ func handle(subscription rec.Record) error {
 	if blackListed {
 		BlackListed.Inc()
 		logCtx.Info("blacklisted")
-		subscription.SubscriptionStatus = "blacklisted"
-		subscription.WriteSubscriptionStatus()
+		record.SubscriptionStatus = "blacklisted"
+		record.WriteSubscriptionStatus()
 
-		if subscription.AttemptsCount >= 1 {
-			if err := subscription.RemoveRetry(); err != nil {
+		if record.AttemptsCount >= 1 {
+			if err := record.RemoveRetry(); err != nil {
 				Errors.Inc()
 
 				err = fmt.Errorf("subscription.RemoveRetry :%s", err.Error())
@@ -216,7 +216,7 @@ func handle(subscription rec.Record) error {
 		logCtx.Debug("not blacklisted, start postpaid checks..")
 	}
 
-	postPaid, err := inmem_client.IsPostPaid(subscription.Msisdn)
+	postPaid, err := inmem_client.IsPostPaid(record.Msisdn)
 	if err != nil {
 		Errors.Inc()
 
@@ -228,10 +228,10 @@ func handle(subscription rec.Record) error {
 		PostPaid.Inc()
 
 		logCtx.Info("postpaid")
-		subscription.SubscriptionStatus = "postpaid"
-		subscription.WriteSubscriptionStatus()
-		if subscription.AttemptsCount >= 1 {
-			if err := subscription.RemoveRetry(); err != nil {
+		record.SubscriptionStatus = "postpaid"
+		record.WriteSubscriptionStatus()
+		if record.AttemptsCount >= 1 {
+			if err := record.RemoveRetry(); err != nil {
 				Errors.Inc()
 
 				err = fmt.Errorf("subscription.RemoveRetry :%s", err.Error())
@@ -245,11 +245,11 @@ func handle(subscription rec.Record) error {
 		logCtx.Debug("not postpaid, send to operator..")
 	}
 
-	operator, err := inmem_client.GetOperatorByCode(subscription.OperatorCode)
+	operator, err := inmem_client.GetOperatorByCode(record.OperatorCode)
 	if err != nil {
 		OperatorNotApplicable.Inc()
 
-		err := fmt.Errorf("inmem_client.GetOperatorByCode %s: %s", subscription.OperatorCode, err.Error())
+		err := fmt.Errorf("inmem_client.GetOperatorByCode %s: %s", record.OperatorCode, err.Error())
 		logCtx.WithField("error", err.Error()).Error("can't process")
 		return err
 	}
@@ -262,12 +262,12 @@ func handle(subscription rec.Record) error {
 		return err
 	}
 
-	setPrevSubscriptionCache(subscription.Msisdn, subscription.ServiceId, subscription.Tid)
+	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 	priority := uint8(0)
-	if subscription.AttemptsCount == 0 {
+	if record.AttemptsCount == 0 {
 		priority = 1
 	}
-	if err := notifyOperatorRequest(queue.Requests, priority, "charge", subscription); err != nil {
+	if err := notifyOperatorRequest(queue.Requests, priority, "charge", record); err != nil {
 		NotifyErrors.Inc()
 
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue.Requests)

@@ -78,106 +78,57 @@ func process() {
 			"count": count,
 		}).Debug("processing")
 		count++
+		processRetry(v)
+	}
+}
+func processRetry(v rec.Record) {
 
-		cmdOut := getRow(v.Tid)
-		if cmdOut == "" {
-			log.WithFields(log.Fields{
-				"tid": v.Tid,
-			}).Error("nothing found in 04 dec log")
-			continue
-		}
-
-		v.LastPayAttemptAt = getTime(cmdOut)
-		v.CreatedAt = v.LastPayAttemptAt
-		v.OperatorToken = getOperatorToken(cmdOut)
-		v.Price = getPrice(v)
-
-		log.WithFields(log.Fields{
-			"tid":              v.Tid,
-			"token":            v.OperatorToken,
-			"createdat":        v.CreatedAt.String(),
-			"lastPayAttemptAt": v.LastPayAttemptAt.String(),
-			"response":         cmdOut,
-		}).Debug("processing")
-
-		if v.OperatorToken == "" {
-			if !strings.Contains(cmdOut, "Data out of bounds") {
-				log.WithFields(log.Fields{
-					"responnse": cmdOut,
-				}).Fatal("cannot find operator token")
-			} else {
-				log.WithFields(log.Fields{
-					"responnse": cmdOut,
-				}).Error("cannot find operator token")
-			}
-		}
-
-		if strings.Contains(cmdOut, paidMarker) {
-			log.WithFields(log.Fields{
-				"tid": v.Tid,
-			}).Debug("paid")
-
-			v.SubscriptionStatus = "paid"
-			if v.AttemptsCount >= 1 {
-				v.Result = "retry_paid"
-			} else {
-				v.Result = "paid"
-			}
-
-			if err := rec.WriteSubscriptionStatus(v); err != nil {
-				err = fmt.Errorf("record.WriteSubscriptionStatus : %s", err.Error())
-				os.Exit(1)
-			}
-			if err := rec.WriteTransaction(v); err != nil {
-				// already logged inside, wuth query
-				err = fmt.Errorf("record.WriteTransaction :%s", err.Error())
-				os.Exit(1)
-			}
-			if err := v.RemoveRetry(); err != nil {
-				err = fmt.Errorf("RemoveRetry :%s", err.Error())
-				log.WithFields(log.Fields{
-					"responnse": cmdOut,
-					"error":     err.Error(),
-					"tid":       v.Tid,
-				}).Fatal("remove from retries failed")
-			}
-			continue
-		}
-
-		for _, postpaidStr := range postPaid {
-			if strings.Contains(string(cmdOut), postpaidStr) {
-				log.WithFields(log.Fields{
-					"tid": v.Tid,
-				}).Debug("postpaid")
-
-				v.SubscriptionStatus = "postpaid"
-				v.Result = "postpaid"
-				rec.WriteSubscriptionStatus(v)
-				if err := v.RemoveRetry(); err != nil {
-
-					err = fmt.Errorf("RemoveRetry :%s", err.Error())
-					log.WithFields(log.Fields{
-						"responnse": cmdOut,
-						"error":     err.Error(),
-						"tid":       v.Tid,
-					}).Fatal("remove from retries failed")
-				}
-				continue
-			}
-		}
-
+	cmdOut := getRow(v.Tid)
+	if cmdOut == "" {
 		log.WithFields(log.Fields{
 			"tid": v.Tid,
-		}).Debug("pay failed")
+		}).Error("nothing found in 04 dec log")
+		return
+	}
 
-		v.SubscriptionStatus = "failed"
-		if v.AttemptsCount >= 1 {
-			v.Result = "retry_failed"
+	v.LastPayAttemptAt = getTime(cmdOut)
+	v.CreatedAt = v.LastPayAttemptAt
+	v.OperatorToken = getOperatorToken(cmdOut)
+	v.Price = getPrice(v)
+
+	log.WithFields(log.Fields{
+		"tid":              v.Tid,
+		"token":            v.OperatorToken,
+		"createdat":        v.CreatedAt.String(),
+		"lastPayAttemptAt": v.LastPayAttemptAt.String(),
+		"response":         cmdOut,
+	}).Debug("processing")
+
+	if v.OperatorToken == "" {
+		if !strings.Contains(cmdOut, "Data out of bounds") {
+			log.WithFields(log.Fields{
+				"responnse": cmdOut,
+			}).Fatal("cannot find operator token")
 		} else {
-			v.Result = "failed"
+			log.WithFields(log.Fields{
+				"responnse": cmdOut,
+			}).Error("cannot find operator token")
 		}
+	}
+
+	if strings.Contains(cmdOut, paidMarker) {
+		log.WithFields(log.Fields{
+			"tid": v.Tid,
+		}).Debug("paid")
+
+		v.SubscriptionStatus = "paid"
+		if v.AttemptsCount >= 1 {
+			v.Result = "retry_paid"
+		} else {
+			v.Result = "paid"
+		}
+
 		if err := rec.WriteSubscriptionStatus(v); err != nil {
-			// already logged inside, wuth query
 			err = fmt.Errorf("record.WriteSubscriptionStatus : %s", err.Error())
 			os.Exit(1)
 		}
@@ -186,12 +137,63 @@ func process() {
 			err = fmt.Errorf("record.WriteTransaction :%s", err.Error())
 			os.Exit(1)
 		}
-
-		if err := rec.TouchRetry(v); err != nil {
-			err = fmt.Errorf("record.TouchRetry: %s", err.Error())
-			os.Exit(1)
+		if err := v.RemoveRetry(); err != nil {
+			err = fmt.Errorf("RemoveRetry :%s", err.Error())
+			log.WithFields(log.Fields{
+				"responnse": cmdOut,
+				"error":     err.Error(),
+				"tid":       v.Tid,
+			}).Fatal("remove from retries failed")
 		}
+		return
+	}
 
+	for _, postpaidStr := range postPaid {
+		if strings.Contains(string(cmdOut), postpaidStr) {
+			log.WithFields(log.Fields{
+				"tid": v.Tid,
+			}).Debug("postpaid")
+
+			v.SubscriptionStatus = "postpaid"
+			v.Result = "postpaid"
+			rec.WriteSubscriptionStatus(v)
+			if err := v.RemoveRetry(); err != nil {
+
+				err = fmt.Errorf("RemoveRetry :%s", err.Error())
+				log.WithFields(log.Fields{
+					"responnse": cmdOut,
+					"error":     err.Error(),
+					"tid":       v.Tid,
+				}).Fatal("remove from retries failed")
+			}
+			return
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"tid": v.Tid,
+	}).Debug("pay failed")
+
+	v.SubscriptionStatus = "failed"
+	if v.AttemptsCount >= 1 {
+		v.Result = "retry_failed"
+	} else {
+		v.Result = "failed"
+	}
+	if err := rec.WriteSubscriptionStatus(v); err != nil {
+		// already logged inside, wuth query
+		err = fmt.Errorf("record.WriteSubscriptionStatus : %s", err.Error())
+		os.Exit(1)
+	}
+	if err := rec.WriteTransaction(v); err != nil {
+		// already logged inside, wuth query
+		err = fmt.Errorf("record.WriteTransaction :%s", err.Error())
+		os.Exit(1)
+	}
+
+	if err := rec.TouchRetry(v); err != nil {
+		err = fmt.Errorf("record.TouchRetry: %s", err.Error())
+		os.Exit(1)
 	}
 }
 
