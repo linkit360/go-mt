@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -13,14 +14,16 @@ import (
 	"github.com/jinzhu/configor"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
+	"github.com/vostrok/utils/amqp"
 	dbconn "github.com/vostrok/utils/db"
 	"github.com/vostrok/utils/rec"
 )
 
 // get retries from json file and put them into database
 type conf struct {
-	Db        dbconn.DataBaseConfig        `yaml:"db"`
-	InmemConf inmem_client.RPCClientConfig `yaml:"inmem_client"`
+	Db             dbconn.DataBaseConfig        `yaml:"db"`
+	InmemConf      inmem_client.RPCClientConfig `yaml:"inmem_client"`
+	PuublisherConf amqp.NotifierConfig          `yaml:"publisher"`
 }
 
 var postPaid = []string{"<value><i4>11</i4></value>",
@@ -28,6 +31,8 @@ var postPaid = []string{"<value><i4>11</i4></value>",
 	"<value><i4>70</i4></value>",
 }
 var paidMarker = "<value><i4>0</i4></value>"
+
+var publisher *amqp.Notifier
 
 func main() {
 	process()
@@ -59,6 +64,8 @@ func process() {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
 
+	publisher = amqp.NewNotifier(appConfig.PuublisherConf)
+
 	rec.Init(appConfig.Db)
 	records, err := rec.LoadPendingRetries(*hours, 41001, *limit)
 	if err != nil {
@@ -83,11 +90,30 @@ func process() {
 }
 func processRetry(v rec.Record) {
 
-	cmdOut := getRow(v.Tid)
+	cmdOut := getRowResponse(v.Tid)
 	if cmdOut == "" {
 		log.WithFields(log.Fields{
 			"tid": v.Tid,
 		}).Error("nothing found in 04 dec log")
+
+		cmdX := getRowMT(v.Tid)
+		if cmdX == "" {
+			log.WithFields(log.Fields{
+				"tid": v.Tid,
+			}).Error("nothing found in mt log")
+			return
+		}
+		log.WithFields(log.Fields{
+			"tid": v.Tid,
+			"mt":  cmdX,
+		}).Debug("processing")
+
+		if err := notifyOperatorRequest("mobilink_requests", 0, "charge", v); err != nil {
+			err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), "mobilink_requests")
+			log.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Fatal("Cannot send to operator queue")
+		}
 		return
 	}
 
@@ -105,7 +131,8 @@ func processRetry(v rec.Record) {
 	}).Debug("processing")
 
 	if v.OperatorToken == "" {
-		if !strings.Contains(cmdOut, "Data out of bounds") {
+		if !(strings.Contains(cmdOut, "Data out of bounds") ||
+			strings.Contains(cmdOut, "client.Do: Post")) {
 			log.WithFields(log.Fields{
 				"responnse": cmdOut,
 			}).Fatal("cannot find operator token")
@@ -222,11 +249,28 @@ func getOperatorToken(row string) string {
 	}
 	return arr[0][43:63]
 }
-func getRow(tid string) string {
+func getRowResponse(tid string) string {
 	// zgrep 1480784486-259758e6-04c5-4527-59f4-dad6e38ebbd5 response_mobilink.log-20161205.gz
 	// | egrep -o
 	cmdName := "/usr/bin/zgrep"
 	cmdArgs := []string{tid, "response_mobilink.log-20161205.gz"}
+
+	cmdOut, err := exec.Command(cmdName, cmdArgs...).Output()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"tid":   tid,
+			"error": err.Error(),
+		}).Error("cannot get row")
+		return ""
+	}
+	return string(cmdOut)
+}
+
+func getRowMT(tid string) string {
+	// zgrep 1480784486-259758e6-04c5-4527-59f4-dad6e38ebbd5 response_mobilink.log-20161205.gz
+	// | egrep -o
+	cmdName := "/usr/bin/zgrep"
+	cmdArgs := []string{tid, "/var/log/linkit/mt.log-20161205.gz"}
 
 	cmdOut, err := exec.Command(cmdName, cmdArgs...).Output()
 	if err != nil {
@@ -256,4 +300,34 @@ func getPrice(v rec.Record) int {
 		}).Fatal("cannot continue with zero price")
 	}
 	return 100 * int(mService.Price)
+}
+
+func notifyOperatorRequest(queue string, priority uint8, eventName string, msg rec.Record) error {
+	if eventName == "" {
+		return fmt.Errorf("QueueSend: %s", "empty event name")
+	}
+	if queue == "" {
+		return fmt.Errorf("QueueSend: %s", "empty queue name")
+	}
+
+	event := amqp.EventNotify{
+		EventName: eventName,
+		EventData: msg,
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("json.Marshal: %s", err.Error())
+	}
+	log.WithFields(log.Fields{
+		"tid":   msg.Tid,
+		"queue": queue,
+		"event": eventName,
+	}).Debug("sent")
+
+	publisher.Publish(amqp.AMQPMessage{
+		QueueName: queue,
+		Priority:  priority,
+		Body:      body,
+	})
+	return nil
 }
