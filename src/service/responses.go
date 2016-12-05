@@ -204,7 +204,6 @@ func handleResponse(record rec.Record) error {
 
 	}
 
-	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 	if len(record.OperatorToken) > 0 && record.Paid {
 		Paid.Inc()
 		SinceSuccessPaid.Set(.0)

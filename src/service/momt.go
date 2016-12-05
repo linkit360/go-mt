@@ -262,6 +262,7 @@ func handle(subscription rec.Record) error {
 		return err
 	}
 
+	setPrevSubscriptionCache(subscription.Msisdn, subscription.ServiceId, subscription.Tid)
 	priority := uint8(0)
 	if subscription.AttemptsCount == 0 {
 		priority = 1
