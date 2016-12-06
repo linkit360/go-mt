@@ -227,15 +227,17 @@ func handle(record rec.Record) error {
 
 		logCtx.Info("blacklisted")
 		record.SubscriptionStatus = "blacklisted"
-		writeSubscriptionStatus(record)
+
+		if err := writeSubscriptionStatus(record); err != nil {
+			Errors.Inc()
+			return err
+		}
 
 		if record.AttemptsCount >= 1 {
 			if err := removeRetry(record); err != nil {
 				Errors.Inc()
-				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
 				return err
 			} else {
-				logCtx.Info("remove retry: blacklisted")
 			}
 		}
 		return nil

@@ -80,13 +80,6 @@ func handleResponse(record rec.Record) error {
 			return err
 		}
 
-		if record.AttemptsCount >= 1 {
-			if err := removeRetry(record); err != nil {
-				Errors.Inc()
-				return err
-			}
-		}
-
 		// update postpaid status only if it wasnt already added
 		postPaid, _ := inmem_client.IsPostPaid(record.Msisdn)
 		if !postPaid {
@@ -107,11 +100,20 @@ func handleResponse(record rec.Record) error {
 					"msisdn": record.Msisdn,
 					"error":  err.Error(),
 				}).Error("add postpaid error")
-				return err
+
+				// sometimes duplicates found despite the check
+				return nil
 			}
 			logCtx.Info("new postpaid number added")
 		} else {
 			logCtx.Info("already in postpaid inmem")
+		}
+
+		if record.AttemptsCount >= 1 {
+			if err := removeRetry(record); err != nil {
+				Errors.Inc()
+				return err
+			}
 		}
 		return nil
 	}
@@ -174,8 +176,7 @@ func handleResponse(record rec.Record) error {
 
 			smsTranasction := record
 			smsTranasction.Result = "sms"
-			err := smsSend(record, mService.SMSNotPaidText)
-			if err != nil {
+			if err := smsSend(record, mService.SMSNotPaidText); err != nil {
 				Errors.Inc()
 
 				logCtx.WithFields(log.Fields{
