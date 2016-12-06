@@ -90,30 +90,31 @@ func process() {
 }
 func processRetry(v rec.Record) {
 
+	cmdX := getRowMT(v.Tid)
+	if cmdX == "" {
+		log.WithFields(log.Fields{
+			"tid": v.Tid,
+		}).Error("nothing found in mt log")
+		return
+	}
+	log.WithFields(log.Fields{
+		"tid": v.Tid,
+		"mt":  cmdX,
+	}).Debug("processing")
+
+	if err := notifyOperatorRequest("mobilink_requests", 0, "charge", v); err != nil {
+		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), "mobilink_requests")
+		log.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Fatal("Cannot send to operator queue")
+	}
+
+	return
 	cmdOut := getRowResponse(v.Tid)
 	if cmdOut == "" {
 		log.WithFields(log.Fields{
 			"tid": v.Tid,
 		}).Error("nothing found in 04 dec log")
-
-		cmdX := getRowMT(v.Tid)
-		if cmdX == "" {
-			log.WithFields(log.Fields{
-				"tid": v.Tid,
-			}).Error("nothing found in mt log")
-			return
-		}
-		log.WithFields(log.Fields{
-			"tid": v.Tid,
-			"mt":  cmdX,
-		}).Debug("processing")
-
-		if err := notifyOperatorRequest("mobilink_requests", 0, "charge", v); err != nil {
-			err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), "mobilink_requests")
-			log.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Fatal("Cannot send to operator queue")
-		}
 		return
 	}
 

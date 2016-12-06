@@ -53,6 +53,9 @@ func Init(
 		for range time.Tick(time.Second) {
 			for operatorName, operatorConf := range operatorConfig {
 				if !operatorConf.RetriesEnabled {
+					log.WithFields(log.Fields{
+						"operator": operatorName,
+					}).Debug("not enabled")
 					continue
 				}
 				queue, ok := queueOperators[operatorName]
@@ -70,14 +73,24 @@ func Init(
 					continue
 				}
 
+				queueResponsesSize, err := svc.notifier.GetQueueSize(queue.Responses)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"operator": operatorName,
+						"error":    err.Error(),
+					}).Error("cannot get queue size")
+					continue
+				}
+
 				log.WithFields(log.Fields{
-					"operator":  operatorName,
-					"queue":     queue.Requests,
-					"queueSize": queueSize,
-					"wiatFor":   operatorConf.OperatorRequestQueueSize,
-					"cond":      queueSize <= operatorConf.OperatorRequestQueueSize,
+					"operator":       operatorName,
+					"queue":          queue.Requests,
+					"queueRequests":  queueSize,
+					"queueResponses": queueResponsesSize,
+					"waitFor":        operatorConf.OperatorRequestQueueSize,
 				}).Debug("got queue size")
-				if queueSize <= operatorConf.OperatorRequestQueueSize {
+				if queueSize <= operatorConf.OperatorRequestQueueSize &&
+					queueResponsesSize <= operatorConf.OperatorRequestQueueSize {
 					operator, err := inmem_client.GetOperatorByName(operatorName)
 					if err != nil {
 						log.WithFields(log.Fields{
@@ -174,13 +187,7 @@ type OperatorQueueConfig struct {
 type QueuesConfig struct {
 	Pixels string `default:"pixels" yaml:"pixels"`
 }
-type OperatorConfig struct {
-	Name           string `yaml:"name"`
-	RetriesEnabled bool   `yaml:"retries_enabled"`
-}
 type MTServiceConfig struct {
-	RetrySec       int                                         `default:"600" yaml:"retry_period"`
-	RetryCount     int                                         `default:"600" yaml:"retry_count"`
 	ThreadsCount   int                                         `default:"1" yaml:"threads_count"`
 	Queues         QueuesConfig                                `yaml:"queues"`
 	QueueOperators map[string]queue_config.OperatorQueueConfig `yaml:"-"`

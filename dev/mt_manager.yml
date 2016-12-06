@@ -41,13 +41,9 @@ consumer:
   reconnect_delay: 10
 
 publisher:
-  queue:
-    pixels: pixels
-
-  rbmq:
-    conn:
-      user: linkit
-      pass: dg-U_oHhy7-
-      host: localhost
-      port: 5672
-    chan_capacity: 10000
+  chan_capacity: 10000
+  conn:
+    user: linkit
+    pass: dg-U_oHhy7-
+    host: localhost
+    port: 5672

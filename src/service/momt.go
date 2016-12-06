@@ -262,9 +262,9 @@ func handle(record rec.Record) error {
 		return err
 	}
 
-	setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 	priority := uint8(0)
 	if record.AttemptsCount == 0 {
+		setPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 		priority = 1
 	}
 	if err := notifyOperatorRequest(queue.Requests, priority, "charge", record); err != nil {
