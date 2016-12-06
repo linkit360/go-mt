@@ -185,7 +185,8 @@ type OperatorQueueConfig struct {
 	SMS             string `yaml:"-"`
 }
 type QueuesConfig struct {
-	Pixels string `default:"pixels" yaml:"pixels"`
+	Pixels    string `default:"pixels" yaml:"pixels"`
+	DBActions string `default:"mt_manager" yaml:"db_actions"`
 }
 type MTServiceConfig struct {
 	ThreadsCount   int                                         `default:"1" yaml:"threads_count"`
@@ -193,9 +194,20 @@ type MTServiceConfig struct {
 	QueueOperators map[string]queue_config.OperatorQueueConfig `yaml:"-"`
 }
 
-func notifyPixel(msg pixels.Pixel) error {
-	log.WithField("pixel", fmt.Sprintf("%#v", msg)).Debug("got pixel")
-
+func notifyPixel(msg pixels.Pixel) (err error) {
+	defer func() {
+		fields := log.Fields{
+			"tid":   msg.Tid,
+			"queue": svc.conf.Queues.Pixels,
+		}
+		if err != nil {
+			fields["errors"] = err.Error()
+			fields["pixel"] = fmt.Sprintf("%#v", msg)
+			log.WithFields(fields).Error("cannot enqueue")
+		} else {
+			log.WithFields(fields).Debug("sent")
+		}
+	}()
 	eventName := "pixels"
 	event := amqp.EventNotify{
 		EventName: eventName,
@@ -203,24 +215,36 @@ func notifyPixel(msg pixels.Pixel) error {
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("json.Marshal: %s", err.Error())
+		err = fmt.Errorf("json.Marshal: %s", err.Error())
+		return err
 	}
-	log.WithField("body", string(body)).Debug("sent pixels")
-	log.WithFields(log.Fields{
-		"data":  fmt.Sprintf("%#v", msg),
-		"queue": svc.conf.Queues.Pixels,
-		"event": eventName,
-	}).Debug("sent")
 	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body})
 	return nil
 }
 
-func notifyOperatorRequest(queue string, priority uint8, eventName string, msg rec.Record) error {
+func notifyOperatorRequest(queue string, priority uint8, eventName string, msg rec.Record) (err error) {
+
+	defer func() {
+		fields := log.Fields{
+			"tid":   msg.Tid,
+			"queue": queue,
+			"event": eventName,
+		}
+		if err != nil {
+			fields["errors"] = err.Error()
+			fields["record"] = fmt.Sprintf("%#v", msg)
+			log.WithFields(fields).Error("cannot enqueue")
+		} else {
+			log.WithFields(fields).Debug("sent")
+		}
+	}()
 	if eventName == "" {
-		return fmt.Errorf("QueueSend: %s", "empty event name")
+		err = fmt.Errorf("QueueSend: %s", "empty event name")
+		return
 	}
 	if queue == "" {
-		return fmt.Errorf("QueueSend: %s", "empty queue name")
+		err = fmt.Errorf("QueueSend: %s", "empty queue name")
+		return
 	}
 
 	event := amqp.EventNotify{
@@ -229,13 +253,9 @@ func notifyOperatorRequest(queue string, priority uint8, eventName string, msg r
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("json.Marshal: %s", err.Error())
+		err = fmt.Errorf("json.Marshal: %s", err.Error())
+		return
 	}
-	log.WithFields(log.Fields{
-		"tid":   msg.Tid,
-		"queue": queue,
-		"event": eventName,
-	}).Debug("sent")
 	svc.notifier.Publish(amqp.AMQPMessage{
 		QueueName: queue,
 		Priority:  priority,
@@ -276,4 +296,62 @@ func setPrevSubscriptionCache(msisdn string, serviceId int64, tid string) {
 			"key": key,
 		}).Debug("set previous subscription cache")
 	}
+}
+
+func startRetry(msg rec.Record) (err error) {
+	return _notifyDBAction("StartRetry", msg)
+}
+func addPostPaidNumber(msg rec.Record) (err error) {
+	return _notifyDBAction("AddPostPaidNumber", msg)
+}
+func touchRetry(msg rec.Record) (err error) {
+	return _notifyDBAction("TouchRetry", msg)
+}
+func removeRetry(msg rec.Record) (err error) {
+	return _notifyDBAction("RemoveRetry", msg)
+}
+func writeSubscriptionStatus(msg rec.Record) (err error) {
+	return _notifyDBAction("WriteSubscriptionStatus", msg)
+}
+func writeTransaction(msg rec.Record) (err error) {
+	return _notifyDBAction("WriteTransaction", msg)
+}
+func _notifyDBAction(eventName string, msg rec.Record) (err error) {
+	defer func() {
+		fields := log.Fields{
+			"data":  fmt.Sprintf("%#v", msg),
+			"queue": svc.conf.Queues.DBActions,
+			"event": eventName,
+		}
+		if err != nil {
+			NotifyErrors.Inc()
+			fields["error"] = fmt.Errorf(eventName+": %s", err.Error())
+			fields["rec"] = fmt.Sprintf("%#v", msg)
+			log.WithFields(fields).Error("cannot send")
+		} else {
+			log.WithFields(fields).Debug("sent")
+		}
+	}()
+
+	if eventName == "" {
+		err = fmt.Errorf("QueueSend: %s", "Empty event name")
+		return
+	}
+
+	event := amqp.EventNotify{
+		EventName: eventName,
+		EventData: msg,
+	}
+	var body []byte
+	body, err = json.Marshal(event)
+
+	if err != nil {
+		err = fmt.Errorf(eventName+" json.Marshal: %s", err.Error())
+		return
+	}
+	svc.notifier.Publish(amqp.AMQPMessage{
+		QueueName: svc.conf.Queues.DBActions,
+		Body:      body,
+	})
+	return nil
 }

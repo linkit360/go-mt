@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -20,9 +19,6 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 			"body": string(msg.Body),
 		}).Debug("start process response")
 
-		// do not do it inside the go func: ineffective
-		msg.Ack(false)
-
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			ResponseDropped.Inc()
@@ -36,93 +32,12 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 		}
 		if err := handleResponse(e.EventData); err != nil {
 			ResponseErrors.Inc()
+			msg.Nack(false, true)
 		} else {
 			ResponseSuccess.Inc()
-		}
-	}
-}
-
-func processSMSResponses(deliveries <-chan amqp.Delivery) {
-	for msg := range deliveries {
-		log.WithFields(log.Fields{
-			"body": string(msg.Body),
-		}).Debug("start process")
-
-		var e EventNotifyTarifficate
-		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			ResponseDropped.Inc()
-
-			log.WithFields(log.Fields{
-				"error":    err.Error(),
-				"msg":      "dropped",
-				"response": string(msg.Body),
-			}).Error("consume failed")
 			msg.Ack(false)
-			continue
-		}
-
-		// do not do it inside the go func: ineffective
-		msg.Ack(false)
-
-		if err := handleSMSResponse(e.EventData); err != nil {
-			ResponseSMSErrors.Inc()
-		} else {
-			ResponseSMSSuccess.Inc()
 		}
 	}
-}
-
-func smsSend(record rec.Record, msg string) error {
-	operator, err := inmem_client.GetOperatorByCode(record.OperatorCode)
-	if err != nil {
-		OperatorNotApplicable.Inc()
-		log.WithFields(log.Fields{
-			"tid":    record.Tid,
-			"msisdn": record.Msisdn,
-		}).Debug("SMS send: not applicable to any operator")
-		return fmt.Errorf("Code %s is not applicable to any operator", record.OperatorCode)
-	}
-	operatorName := strings.ToLower(operator.Name)
-	queue, ok := svc.conf.QueueOperators[operatorName]
-	if !ok {
-		OperatorNotEnabled.Inc()
-
-		log.WithFields(log.Fields{
-			"tid":    record.Tid,
-			"msisdn": record.Msisdn,
-		}).Debug("SMS send: not enabled in mt_manager")
-		return fmt.Errorf("Name %s is not enabled", operatorName)
-	}
-	record.SMSText = msg
-	if err := notifyOperatorRequest(queue.SMSRequest, 0, "send_sms", record); err != nil {
-		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
-		log.WithFields(log.Fields{
-			"tid":    record.Tid,
-			"msisdn": record.Msisdn,
-			"error":  err.Error(),
-		}).Error("Cannot send to operator SMS queue")
-		return err
-	}
-	return nil
-}
-
-func handleSMSResponse(record rec.Record) error {
-	smsTranasction := record
-	smsTranasction.Result = "sms"
-	if smsTranasction.OperatorErr != "" {
-		smsTranasction.Result = "sms failed"
-	} else {
-		smsTranasction.Result = "sms sent"
-	}
-	if err := smsTranasction.WriteTransaction(); err != nil {
-		log.WithFields(log.Fields{
-			"tid":    smsTranasction.Tid,
-			"msisdn": smsTranasction.Msisdn,
-			"error":  err.Error(),
-		}).Error("failed to write sms transaction")
-		return err
-	}
-	return nil
 }
 
 func handleResponse(record rec.Record) error {
@@ -130,27 +45,8 @@ func handleResponse(record rec.Record) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid": record.Tid,
 	})
-	logCtx.Info("start processing response")
-	// send everything, pixels module will decide to send pixel, or not to send
-	if record.Pixel != "" &&
-		record.AttemptsCount == 0 &&
-		record.SubscriptionStatus != "postpaid" {
-		Pixel.Inc()
+	logCtx.Info("start response")
 
-		logCtx.WithField("pixel", record.Pixel).Debug("enqueue pixel")
-		notifyPixel(pixels.Pixel{
-			Tid:            record.Tid,
-			Msisdn:         record.Msisdn,
-			CampaignId:     record.CampaignId,
-			SubscriptionId: record.SubscriptionId,
-			OperatorCode:   record.OperatorCode,
-			CountryCode:    record.CountryCode,
-			Pixel:          record.Pixel,
-			Publisher:      record.Publisher,
-		})
-	} else {
-		logCtx.Debug("pixel is empty")
-	}
 	if record.OperatorErr != "" {
 		TarificateFailed.Inc()
 	}
@@ -164,16 +60,15 @@ func handleResponse(record rec.Record) error {
 		// we do not notice it in inmem and
 		// subscription redirects again to operator request
 		record.SubscriptionStatus = "postpaid"
-		record.WriteSubscriptionStatus()
+		if err := writeSubscriptionStatus(record); err != nil {
+			Errors.Inc()
+			return err
+		}
 
 		if record.AttemptsCount >= 1 {
-			if err := record.RemoveRetry(); err != nil {
+			if err := removeRetry(record); err != nil {
 				Errors.Inc()
-
-				err = fmt.Errorf("record.RemoveRetry :%s", err.Error())
-				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
-			} else {
-				logCtx.Info("remove retry: postpaid")
+				return err
 			}
 		}
 
@@ -182,26 +77,28 @@ func handleResponse(record rec.Record) error {
 		if !postPaid {
 			if err := inmem_client.PostPaidPush(record.Msisdn); err != nil {
 				Errors.Inc()
+
 				err = fmt.Errorf("inmem_client.PostPaidPush: %s", err.Error())
 				logCtx.WithFields(log.Fields{
 					"msisdn": record.Msisdn,
 					"error":  err.Error(),
 				}).Error("add inmem postpaid error")
+				return err
 			}
-			if err := record.AddPostPaidNumber(); err != nil {
+			if err := addPostPaidNumber(record); err != nil {
 				Errors.Inc()
-				err = fmt.Errorf("record.AddPostPaidNumber: %s", err.Error())
+
 				logCtx.WithFields(log.Fields{
 					"msisdn": record.Msisdn,
 					"error":  err.Error(),
 				}).Error("add postpaid error")
+				return err
 			}
 			logCtx.Info("new postpaid number added")
 		} else {
 			logCtx.Info("already in postpaid inmem")
 		}
 		return nil
-
 	}
 
 	if len(record.OperatorToken) > 0 && record.Paid {
@@ -223,37 +120,37 @@ func handleResponse(record rec.Record) error {
 	}
 
 	logCtx.WithFields(log.Fields{
+		"paid":   record.Paid,
 		"result": record.Result,
 		"status": record.SubscriptionStatus,
-	}).Info("got response")
+	}).Info("statuses")
 
-	if err := record.WriteSubscriptionStatus(); err != nil {
-		// already logged inside, wuth query
-		err = fmt.Errorf("record.WriteSubscriptionStatus : %s", err.Error())
-		return err
-	}
-	if err := record.WriteTransaction(); err != nil {
+	if err := writeSubscriptionStatus(record); err != nil {
 		Errors.Inc()
-		// already logged inside, wuth query
-		err = fmt.Errorf("record.WriteTransaction :%s", err.Error())
+		return err
+	}
+	if err := writeTransaction(record); err != nil {
+		Errors.Inc()
 		return err
 	}
 
-	// add retries
+	// add to retries
 	if record.AttemptsCount == 0 && record.SubscriptionStatus == "failed" {
 		logCtx.WithFields(log.Fields{
 			"action": "move to retry",
-		}).Debug("subscription")
+		}).Debug("mo")
 
 		mService, err := inmem_client.GetServiceById(record.ServiceId)
 		if err != nil {
 			Errors.Inc()
+
 			err := fmt.Errorf("GetServiceById: %d", record.ServiceId)
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 			}).Error("cannot process subscription")
 			return err
 		}
+
 		record.DelayHours = mService.DelayHours
 		record.KeepDays = mService.KeepDays
 
@@ -264,28 +161,35 @@ func handleResponse(record rec.Record) error {
 			smsTranasction.Result = "sms"
 			err := smsSend(record, mService.SMSNotPaidText)
 			if err != nil {
+				Errors.Inc()
+
 				logCtx.WithFields(log.Fields{
 					"error": err.Error(),
 				}).Error("sms send")
+				return err
 			}
-			if err := smsTranasction.WriteTransaction(); err != nil {
+			if err := writeTransaction(record); err != nil {
+				Errors.Inc()
+
 				logCtx.WithFields(log.Fields{
 					"error": err.Error(),
 				}).Error("failed to write sms transaction")
+				return err
 			}
-
 		} else {
 			logCtx.WithField("serviceId", mService.Id).Debug("send sms disabled on service")
 		}
+		if err := startRetry(record); err != nil {
+			Errors.Inc()
 
-		logCtx.Info("add to retries")
-		if err := record.StartRetry(); err != nil {
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 				"retry": fmt.Sprintf("%#v", record),
 			}).Error("add to retries failed")
+			return err
 		}
 	}
+
 	// retry
 	if record.AttemptsCount >= 1 {
 		logCtx.WithFields(log.Fields{
@@ -301,27 +205,44 @@ func handleResponse(record rec.Record) error {
 			remove = true
 		}
 		if record.Result == "retry_paid" {
-			logCtx.Info("remove retry: retry_paid")
 			remove = true
 		}
 		if remove {
-			if err := record.RemoveRetry(); err != nil {
+			if err := removeRetry(record); err != nil {
 				Errors.Inc()
-
-				err = fmt.Errorf("record.RemoveRetry :%s", err.Error())
-				logCtx.WithField("error", err.Error()).Error("remove from retries failed")
 				return err
 			}
 		} else {
-			if err := record.TouchRetry(); err != nil {
+			if err := touchRetry(record); err != nil {
 				Errors.Inc()
-
-				err = fmt.Errorf("record.TouchRetry: %s", err.Error())
-				logCtx.WithField("error", err.Error()).Error("touch retry failed")
 				return err
 			}
 		}
+	}
 
+	// send everything, pixels module will decide to send pixel, or not to send
+	if record.Pixel != "" &&
+		record.AttemptsCount == 0 &&
+		record.SubscriptionStatus != "postpaid" {
+		Pixel.Inc()
+
+		if err := notifyPixel(pixels.Pixel{
+			Tid:            record.Tid,
+			Msisdn:         record.Msisdn,
+			CampaignId:     record.CampaignId,
+			SubscriptionId: record.SubscriptionId,
+			OperatorCode:   record.OperatorCode,
+			CountryCode:    record.CountryCode,
+			Pixel:          record.Pixel,
+			Publisher:      record.Publisher,
+		}); err != nil {
+			Errors.Inc()
+
+			err = fmt.Errorf("notifyPixel: %s", err.Error())
+			return err
+		}
+	} else {
+		logCtx.Debug("pixel is empty")
 	}
 
 	return nil

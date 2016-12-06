@@ -120,7 +120,7 @@ func initMetrics() {
 	}()
 
 	go func() {
-		for range time.Tick(5 * time.Minute) {
+		for range time.Tick(time.Minute) {
 			retriesCount, err := rec.GetPendingRetriesCount()
 			if err != nil {
 				err = fmt.Errorf("rec.GetPendingRetriesCount: %s", err.Error())
