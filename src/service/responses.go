@@ -28,14 +28,29 @@ func processResponses(deliveries <-chan amqp.Delivery) {
 				"msg":      "dropped",
 				"response": string(msg.Body),
 			}).Error("consume failed")
-			continue
+			goto ack
 		}
 		if err := handleResponse(e.EventData); err != nil {
 			ResponseErrors.Inc()
-			msg.Nack(false, true)
-		} else {
-			ResponseSuccess.Inc()
-			msg.Ack(false)
+		nack:
+			if err := msg.Nack(false, true); err != nil {
+				log.WithFields(log.Fields{
+					"tid":   e.EventData.Tid,
+					"error": err.Error(),
+				}).Error("cannot nack")
+				time.Sleep(time.Second)
+				goto nack
+			}
+		}
+		ResponseSuccess.Inc()
+	ack:
+		if err := msg.Ack(false); err != nil {
+			log.WithFields(log.Fields{
+				"tid":   e.EventData.Tid,
+				"error": err.Error(),
+			}).Error("cannot ack")
+			time.Sleep(time.Second)
+			goto ack
 		}
 	}
 }

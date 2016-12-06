@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/streadway/amqp"
@@ -27,17 +28,32 @@ func processSMSResponses(deliveries <-chan amqp.Delivery) {
 				"msg":      "dropped",
 				"response": string(msg.Body),
 			}).Error("consume failed")
-			msg.Ack(false)
-			continue
+			goto ack
 		}
 
 		if err := handleSMSResponse(e.EventData); err != nil {
 			ResponseSMSErrors.Inc()
-			msg.Nack(false, true)
-		} else {
-			ResponseSMSSuccess.Inc()
-			msg.Ack(false)
+		nack:
+			if err := msg.Nack(false, true); err != nil {
+				log.WithFields(log.Fields{
+					"tid":   e.EventData.Tid,
+					"error": err.Error(),
+				}).Error("cannot nack")
+				time.Sleep(time.Second)
+				goto nack
+			}
 		}
+		ResponseSMSSuccess.Inc()
+	ack:
+		if err := msg.Ack(false); err != nil {
+			log.WithFields(log.Fields{
+				"tid":   e.EventData.Tid,
+				"error": err.Error(),
+			}).Error("cannot ack")
+			time.Sleep(time.Second)
+			goto ack
+		}
+
 	}
 }
 

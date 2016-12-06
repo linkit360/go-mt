@@ -50,16 +50,33 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 				"msg":         "dropped",
 				"tarifficate": string(msg.Body),
 			}).Error("consume")
-			continue
+			goto ack
 		}
 
 		if err := handle(e.EventData); err != nil {
 			SubscritpionsErrors.Inc()
-			msg.Ack(false)
-		} else {
-			SubscritpionsSent.Inc()
-			msg.Nack(false, true)
+		nack:
+			if err := msg.Nack(false, true); err != nil {
+				log.WithFields(log.Fields{
+					"tid":   e.EventData.Tid,
+					"error": err.Error(),
+				}).Error("cannot nack")
+				time.Sleep(time.Second)
+				goto nack
+			}
+			continue
 		}
+		SubscritpionsSent.Inc()
+	ack:
+		if err := msg.Ack(false); err != nil {
+			log.WithFields(log.Fields{
+				"tid":   e.EventData.Tid,
+				"error": err.Error(),
+			}).Error("cannot ack")
+			time.Sleep(time.Second)
+			goto ack
+		}
+
 	}
 }
 
