@@ -31,8 +31,10 @@ var postPaid = []string{"<value><i4>11</i4></value>",
 	"<value><i4>70</i4></value>",
 }
 var paidMarker = "<value><i4>0</i4></value>"
-
 var publisher *amqp.Notifier
+
+var responseLog *string
+var mtLog *string
 
 func main() {
 	process()
@@ -51,6 +53,9 @@ func process() {
 	cfg := flag.String("config", "mt_manager.yml", "configuration yml file")
 	hours := flag.Int("hours", 1, "hours")
 	limit := flag.Int("limit", 1, "limit of retries to process")
+	responseLog = flag.String("response", "/var/log/linkit/response_mobilink.log", "response log")
+	mtLog = flag.String("mt", "/var/log/linkit/mt.log", "mt log")
+
 	flag.Parse()
 
 	var appConfig conf
@@ -67,7 +72,7 @@ func process() {
 	publisher = amqp.NewNotifier(appConfig.PuublisherConf)
 
 	rec.Init(appConfig.Db)
-	records, err := rec.LoadPendingRetries(*hours, 41001, *limit)
+	records, err := rec.LoadScriptRetries(*hours, 41001, *limit)
 	if err != nil {
 		err = fmt.Errorf("rec.LoadPendingRetries: %s", err.Error())
 		log.WithFields(log.Fields{
@@ -90,31 +95,33 @@ func process() {
 }
 func processRetry(v rec.Record) {
 
-	cmdX := getRowMT(v.Tid)
-	if cmdX == "" {
-		log.WithFields(log.Fields{
-			"tid": v.Tid,
-		}).Error("nothing found in mt log")
-		return
-	}
-	log.WithFields(log.Fields{
-		"tid": v.Tid,
-		"mt":  cmdX,
-	}).Debug("processing")
-
-	if err := notifyOperatorRequest("mobilink_requests", 0, "charge", v); err != nil {
-		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), "mobilink_requests")
-		log.WithFields(log.Fields{
-			"error": err.Error(),
-		}).Fatal("Cannot send to operator queue")
-	}
-
-	return
 	cmdOut := getRowResponse(v.Tid)
 	if cmdOut == "" {
 		log.WithFields(log.Fields{
 			"tid": v.Tid,
-		}).Error("nothing found in 04 dec log")
+			"log": *responseLog,
+		}).Error("nothing found in response log")
+
+		cmdX := getRowMT(v.Tid)
+		if cmdX == "" {
+			log.WithFields(log.Fields{
+				"tid": v.Tid,
+				"log": *mtLog,
+			}).Error("nothing found in mt log")
+			return
+		}
+		log.WithFields(log.Fields{
+			"tid": v.Tid,
+			"mt":  cmdX,
+		}).Debug("processing")
+
+		if err := notifyOperatorRequest("mobilink_requests", 0, "charge", v); err != nil {
+			err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), "mobilink_requests")
+			log.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Fatal("Cannot send to operator queue")
+		}
+
 		return
 	}
 
@@ -253,8 +260,11 @@ func getOperatorToken(row string) string {
 func getRowResponse(tid string) string {
 	// zgrep 1480784486-259758e6-04c5-4527-59f4-dad6e38ebbd5 response_mobilink.log-20161205.gz
 	// | egrep -o
-	cmdName := "/usr/bin/zgrep"
-	cmdArgs := []string{tid, "response_mobilink.log-20161205.gz"}
+	cmdName := "/usr/bin/grep"
+	if strings.Contains(*responseLog, ".gz") {
+		cmdName = "/usr/bin/zgrep"
+	}
+	cmdArgs := []string{tid, *responseLog}
 
 	cmdOut, err := exec.Command(cmdName, cmdArgs...).Output()
 	if err != nil {
@@ -270,9 +280,11 @@ func getRowResponse(tid string) string {
 func getRowMT(tid string) string {
 	// zgrep 1480784486-259758e6-04c5-4527-59f4-dad6e38ebbd5 response_mobilink.log-20161205.gz
 	// | egrep -o
-	cmdName := "/usr/bin/zgrep"
-	cmdArgs := []string{tid, "/var/log/linkit/mt.log-20161205.gz"}
-
+	cmdName := "/usr/bin/grep"
+	if strings.Contains(*mtLog, ".gz") {
+		cmdName = "/usr/bin/zgrep"
+	}
+	cmdArgs := []string{tid, *mtLog}
 	cmdOut, err := exec.Command(cmdName, cmdArgs...).Output()
 	if err != nil {
 		log.WithFields(log.Fields{
