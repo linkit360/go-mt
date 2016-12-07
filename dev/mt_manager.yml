@@ -15,7 +15,7 @@ operators:
     operator_request_queue_size: 1
 
 inmem_client:
-  dsn: localhost:50307
+  port: 50307
   timeout: 10
 
 db:
