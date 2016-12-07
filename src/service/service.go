@@ -84,11 +84,10 @@ func Init(
 
 				log.WithFields(log.Fields{
 					"operator":       operatorName,
-					"queue":          queue.Requests,
 					"queueRequests":  queueSize,
 					"queueResponses": queueResponsesSize,
 					"waitFor":        operatorConf.OperatorRequestQueueSize,
-				}).Debug("got queue size")
+				}).Debug("")
 				if queueSize <= operatorConf.OperatorRequestQueueSize &&
 					queueResponsesSize <= operatorConf.OperatorRequestQueueSize {
 					operator, err := inmem_client.GetOperatorByName(operatorName)
@@ -318,18 +317,16 @@ func writeTransaction(msg rec.Record) (err error) {
 }
 func _notifyDBAction(eventName string, msg rec.Record) (err error) {
 	defer func() {
-		fields := log.Fields{
-			"data":  fmt.Sprintf("%#v", msg),
-			"queue": svc.conf.Queues.DBActions,
-			"event": eventName,
-		}
 		if err != nil {
 			NotifyErrors.Inc()
+			fields := log.Fields{
+				"data":  fmt.Sprintf("%#v", msg),
+				"queue": svc.conf.Queues.DBActions,
+				"event": eventName,
+			}
 			fields["error"] = fmt.Errorf(eventName+": %s", err.Error())
 			fields["rec"] = fmt.Sprintf("%#v", msg)
 			log.WithFields(fields).Error("cannot send")
-		} else {
-			log.WithFields(fields).Debug("sent")
 		}
 	}()
 
