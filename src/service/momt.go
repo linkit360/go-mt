@@ -108,53 +108,12 @@ func processRetries(operatorCode int64, retryCount int) {
 			"took":      time.Since(begin),
 		}).Debug("done process retries")
 	}()
+
 	for _, r := range retries {
-		now := time.Now()
-		makeAttempt := false
-
-		// new!
-		log.WithFields(log.Fields{
-			"tid":      r.Tid,
-			"keepDays": r.KeepDays,
-		}).Debug("keep days check..")
-		if r.CreatedAt.Sub(now).Hours() > (time.Duration(24*r.KeepDays) * time.Hour).Hours() {
-			log.WithField("subscription", r).Debug("")
-			log.WithFields(log.Fields{
-				"subscription": r,
-				"CreatedAt":    r.CreatedAt.String(),
-				"KeepDays":     r.KeepDays,
-			}).Debug("must remove, but first, try tarifficate")
-			makeAttempt = true
-		}
-
-		hoursSinceLastAttempt := now.Sub(r.LastPayAttemptAt).Hours()
-		delay := (time.Duration(r.DelayHours) * time.Hour).Hours()
-		log.WithFields(log.Fields{
-			"tid":              r.Tid,
-			"sinceLastAttempt": hoursSinceLastAttempt,
-			"delay":            delay,
-		}).Debug("delay hours check..")
-		if hoursSinceLastAttempt > delay {
-			log.WithFields(log.Fields{
-				"subscription":     r,
-				"LastPayAttemptAt": r.LastPayAttemptAt.String(),
-				"delayHours":       r.DelayHours,
-			}).Debug("time to tarifficate")
-			makeAttempt = true
-		} else {
-			log.WithFields(log.Fields{
-				"tid": r.Tid,
-			}).Debug("dalay check was not passed")
-		}
-
-		if makeAttempt {
-			handle(r)
-		} else {
-			log.WithFields(log.Fields{
-				"tid": r.Tid,
-			}).Debug("won't make attempt")
-		}
+		svc.retriesWg.Add(1)
+		go handle(r)
 	}
+	svc.retriesWg.Wait()
 }
 
 // for retries: set price
@@ -190,8 +149,7 @@ func handle(record rec.Record) error {
 	if record.AttemptsCount == 0 && mService.PaidHours > 0 {
 		logCtx.WithField("paidHours", mService.PaidHours).Debug("service paid hours > 0")
 
-		hasPrevious := getPrevSubscriptionCache(
-			record.Msisdn, record.ServiceId, record.Tid)
+		hasPrevious := getPrevSubscriptionCache(record.Msisdn, record.ServiceId, record.Tid)
 		if hasPrevious {
 			Rejected.Inc()
 
@@ -254,6 +212,7 @@ func handle(record rec.Record) error {
 		return err
 	}
 	if postPaid {
+		logCtx.Debug("number is postpaid")
 		PostPaid.Inc()
 
 		logCtx.Info("postpaid")
@@ -314,6 +273,6 @@ func handle(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
 		return err
 	}
-
+	svc.retriesWg.Done()
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -100,7 +101,6 @@ func Init(
 					}
 					processRetries(operator.Code, operatorConf.GetFromDBRetryCount)
 				}
-
 			}
 		}
 	}()
@@ -114,9 +114,9 @@ func Init(
 		log.Info("initialising operator " + operatorName)
 
 		svc.consumer[operatorName] = Consumers{
-			Mo:           amqp.NewConsumer(consumerConfig, queue.MOTarifficate),
-			Responses:    amqp.NewConsumer(consumerConfig, queue.Responses),
-			SMSResponses: amqp.NewConsumer(consumerConfig, queue.SMSResponse),
+			Mo:           amqp.NewConsumer(consumerConfig, queue.MOTarifficate, consumerConfig.QueuePrefetchCount),
+			Responses:    amqp.NewConsumer(consumerConfig, queue.Responses, consumerConfig.QueuePrefetchCount),
+			SMSResponses: amqp.NewConsumer(consumerConfig, queue.SMSResponse, consumerConfig.QueuePrefetchCount),
 		}
 		if err := svc.consumer[operatorName].Mo.Connect(); err != nil {
 			log.Fatal("rbmq consumer connect:", err.Error())
@@ -169,6 +169,7 @@ type MTService struct {
 	notifier                         *amqp.Notifier
 	consumer                         map[string]Consumers
 	prevCache                        *cache.Cache
+	retriesWg                        sync.WaitGroup
 }
 
 type Consumers struct {

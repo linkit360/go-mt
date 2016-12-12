@@ -13,10 +13,11 @@ operators:
     retries_enabled: true
     get_from_db_retry_count: 500
     operator_request_queue_size: 1
-
-inmem_client:
-  port: 50307
-  timeout: 10
+  yondu:
+    name: yondu
+    retries_enabled: false
+    get_from_db_retry_count: 500
+    operator_request_queue_size: 1
 
 db:
   conn_ttl: -1
