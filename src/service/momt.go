@@ -111,9 +111,139 @@ func processRetries(operatorCode int64, retryCount int) {
 
 	for _, r := range retries {
 		svc.retriesWg.Add(1)
-		go handle(r)
+		go handleRetry(r)
 	}
 	svc.retriesWg.Wait()
+}
+
+// for retries: set price
+// set paid hours
+func handleRetry(record rec.Record) error {
+
+	logCtx := log.WithFields(log.Fields{
+		"tid":            record.Tid,
+		"attempts_count": record.AttemptsCount,
+	})
+	logCtx.Debug("start processsing")
+
+	mService, err := inmem_client.GetServiceById(record.ServiceId)
+	if err != nil {
+		Errors.Inc()
+
+		err := fmt.Errorf("inmem_client.GetServiceById %d: %s", record.ServiceId, err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't process")
+		return err
+	}
+	// misconfigured price
+	if mService.Price <= 0 {
+		Errors.Inc()
+
+		err := fmt.Errorf("mService.Price %d is zero or less", mService.Price)
+		logCtx.WithField("price", mService.Price).Error("price is not set")
+		return err
+	}
+	record.Price = 100 * int(mService.Price)
+
+	logCtx.Debug("blacklist checks..")
+	blackListed, err := inmem_client.IsBlackListed(record.Msisdn)
+	if err != nil {
+		Errors.Inc()
+
+		err := fmt.Errorf("inmem_client.IsBlackListed: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't get is blacklisted")
+		return err
+	}
+	if blackListed {
+		BlackListed.Inc()
+
+		logCtx.Info("blacklisted")
+		record.SubscriptionStatus = "blacklisted"
+
+		if err := writeSubscriptionStatus(record); err != nil {
+			Errors.Inc()
+			return err
+		}
+
+		if record.AttemptsCount >= 1 {
+			if err := removeRetry(record); err != nil {
+				Errors.Inc()
+				return err
+			} else {
+			}
+		}
+		return nil
+	} else {
+		logCtx.Debug("not blacklisted, start postpaid checks..")
+	}
+
+	postPaid, err := inmem_client.IsPostPaid(record.Msisdn)
+	if err != nil {
+		Errors.Inc()
+
+		err := fmt.Errorf("inmem_client.IsPostPaid: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cann't get postpaid")
+		return err
+	}
+	if postPaid {
+		logCtx.Debug("number is postpaid")
+		PostPaid.Inc()
+
+		logCtx.Info("postpaid")
+		record.SubscriptionStatus = "postpaid"
+
+		if err := writeSubscriptionStatus(record); err != nil {
+			Errors.Inc()
+			return err
+		}
+		if record.AttemptsCount >= 1 {
+			if err := removeRetry(record); err != nil {
+				Errors.Inc()
+				return err
+			} else {
+				logCtx.Info("remove retry: postpaid")
+			}
+		}
+		return nil
+	} else {
+		logCtx.Debug("not postpaid, send to operator..")
+	}
+
+	operator, err := inmem_client.GetOperatorByCode(record.OperatorCode)
+	if err != nil {
+		OperatorNotApplicable.Inc()
+
+		err := fmt.Errorf("inmem_client.GetOperatorByCode %s: %s", record.OperatorCode, err.Error())
+		logCtx.WithField("error", err.Error()).Error("can't process")
+		return err
+	}
+	operatorName := strings.ToLower(operator.Name)
+	queue, ok := svc.conf.QueueOperators[operatorName]
+	if !ok {
+		OperatorNotEnabled.Inc()
+		err := fmt.Errorf("Name %s is not enabled", operatorName)
+		logCtx.WithField("error", err.Error()).Error("can't process")
+		return err
+	}
+
+	priority := uint8(0)
+
+	if record.AttemptsCount > 0 {
+		if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
+			Errors.Inc()
+			return err
+		}
+	}
+
+	if err := notifyOperatorRequest(queue.Requests, priority, "charge", record); err != nil {
+		Errors.Inc()
+		NotifyErrors.Inc()
+
+		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue.Requests)
+		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
+		return err
+	}
+	svc.retriesWg.Done()
+	return nil
 }
 
 // for retries: set price
@@ -273,6 +403,5 @@ func handle(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
 		return err
 	}
-	svc.retriesWg.Done()
 	return nil
 }
