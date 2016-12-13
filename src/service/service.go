@@ -115,21 +115,21 @@ func Init(
 		}
 
 		log.Info("initialising operator " + operatorName)
-		moConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["mo"]
+		moConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName]["mo"]
 		if !ok {
 			log.WithFields(log.Fields{
 				"operator": operatorName,
 				"type":     "mo",
 			}).Fatal("no consume settings")
 		}
-		responsesConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["responses"]
+		responsesConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName]["responses"]
 		if !ok {
 			log.WithFields(log.Fields{
 				"operator": operatorName,
 				"type":     "responses",
 			}).Fatal("no consume settings")
 		}
-		smsConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["sms_responses"]
+		smsConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName]["sms_responses"]
 		if !ok {
 			log.WithFields(log.Fields{
 				"operator": operatorName,
@@ -206,9 +206,8 @@ type QueuesConfig struct {
 	Pixels    string `default:"pixels" yaml:"pixels"`
 	DBActions string `default:"mt_manager" yaml:"db_actions"`
 }
-type ConsumeSettingsConfig struct {
-	Config map[string]config.ConsumeQueueConfig
-}
+type ConsumeSettingsConfig map[string]config.ConsumeQueueConfig
+
 type MTServiceConfig struct {
 	Queues          QueuesConfig                     `yaml:"queues"`
 	Operators       map[string]config.OperatorConfig `yaml:"operators"`
