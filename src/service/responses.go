@@ -157,26 +157,12 @@ func handleResponse(record rec.Record) error {
 			"action": "move to retry",
 		}).Debug("mo")
 
-		mService, err := inmem_client.GetServiceById(record.ServiceId)
-		if err != nil {
-			Errors.Inc()
-
-			err := fmt.Errorf("GetServiceById: %d", record.ServiceId)
-			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Error("cannot process subscription")
-			return err
-		}
-
-		record.DelayHours = mService.DelayHours
-		record.KeepDays = mService.KeepDays
-
-		if mService.SMSSend == 1 {
-			logCtx.WithField("sms", "send").Info(mService.SMSNotPaidText)
+		if record.SMSSend {
+			logCtx.WithField("sms", "send").Info(record.SMSText)
 
 			smsTranasction := record
 			smsTranasction.Result = "sms"
-			if err := smsSend(record, mService.SMSNotPaidText); err != nil {
+			if err := smsSend(record, record.SMSText); err != nil {
 				Errors.Inc()
 
 				logCtx.WithFields(log.Fields{
@@ -193,7 +179,7 @@ func handleResponse(record rec.Record) error {
 				return err
 			}
 		} else {
-			logCtx.WithField("serviceId", mService.Id).Debug("send sms disabled on service")
+			logCtx.WithField("serviceId", record.ServiceId).Debug("send sms disabled")
 		}
 		if err := startRetry(record); err != nil {
 			Errors.Inc()

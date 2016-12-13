@@ -273,13 +273,6 @@ func handle(record rec.Record) error {
 			return err
 		}
 
-		if record.AttemptsCount >= 1 {
-			if err := removeRetry(record); err != nil {
-				Errors.Inc()
-				return err
-			} else {
-			}
-		}
 		return nil
 	} else {
 		logCtx.Debug("not blacklisted, start postpaid checks..")
