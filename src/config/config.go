@@ -12,7 +12,6 @@ import (
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/utils/amqp"
-	"github.com/vostrok/utils/config"
 	"github.com/vostrok/utils/db"
 )
 
@@ -20,15 +19,13 @@ type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	Name              string                                `yaml:"name"`
-	Server            ServerConfig                          `yaml:"server"`
-	Service           service.MTServiceConfig               `yaml:"service"`
-	InMemClientConfig inmem_client.RPCClientConfig          `yaml:"inmem_client"`
-	DbConf            db.DataBaseConfig                     `yaml:"db"`
-	Publisher         amqp.NotifierConfig                   `yaml:"publisher"`
-	Consumer          amqp.ConsumerConfig                   `yaml:"consumer"`
-	Operators         map[string]config.OperatorConfig      `yaml:"operators"`
-	Queues            map[string]config.OperatorQueueConfig `yaml:"-"`
+	Name              string                       `yaml:"name"`
+	Server            ServerConfig                 `yaml:"server"`
+	Service           service.MTServiceConfig      `yaml:"service"`
+	InMemClientConfig inmem_client.RPCClientConfig `yaml:"inmem_client"`
+	DbConf            db.DataBaseConfig            `yaml:"db"`
+	Publisher         amqp.NotifierConfig          `yaml:"publisher"`
+	Consumer          amqp.ConsumerConfig          `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {
@@ -51,8 +48,6 @@ func LoadConfig() AppConfig {
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)
 	appConfig.Publisher.Conn.Host = envString("RBMQ_HOST", appConfig.Publisher.Conn.Host)
 	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)
-
-	appConfig.Queues = config.GetOperatorsQueue(appConfig.Operators)
 
 	log.WithField("config", fmt.Sprintf("%#v", appConfig)).Info("Config loaded")
 	return appConfig

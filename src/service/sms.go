@@ -10,6 +10,7 @@ import (
 	"github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
+	"github.com/vostrok/utils/config"
 	rec "github.com/vostrok/utils/rec"
 )
 
@@ -69,18 +70,9 @@ func smsSend(record rec.Record, msg string) error {
 		return fmt.Errorf("Code %s is not applicable to any operator", record.OperatorCode)
 	}
 	operatorName := strings.ToLower(operator.Name)
-	queue, ok := svc.conf.QueueOperators[operatorName]
-	if !ok {
-		OperatorNotEnabled.Inc()
-
-		log.WithFields(log.Fields{
-			"tid":    record.Tid,
-			"msisdn": record.Msisdn,
-		}).Error("SMS send: not enabled in mt_manager")
-		return fmt.Errorf("Name %s is not enabled", operatorName)
-	}
+	queue := config.SMSRequestQueue(operatorName)
 	record.SMSText = msg
-	if err := notifyOperatorRequest(queue.SMSRequest, 0, "send_sms", record); err != nil {
+	if err := notifyOperatorRequest(queue, 0, "send_sms", record); err != nil {
 
 		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), queue)
 		log.WithFields(log.Fields{

@@ -258,7 +258,9 @@ func handleResponse(record rec.Record) error {
 			return err
 		}
 	} else {
-		logCtx.Debug("pixel is empty")
+		logCtx.WithFields(log.Fields{
+			"attemptsCount": record.AttemptsCount,
+		}).Debug("skip send pixel")
 	}
 
 	return nil

@@ -14,7 +14,7 @@ import (
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	pixels "github.com/vostrok/pixels/src/notifier"
 	"github.com/vostrok/utils/amqp"
-	queue_config "github.com/vostrok/utils/config"
+	"github.com/vostrok/utils/config"
 	"github.com/vostrok/utils/db"
 	rec "github.com/vostrok/utils/rec"
 )
@@ -25,10 +25,8 @@ import (
 var svc MTService
 
 func Init(
-	sConf MTServiceConfig,
+	serviceConf MTServiceConfig,
 	inMemConfig inmem_client.RPCClientConfig,
-	operatorConfig map[string]queue_config.OperatorConfig,
-	queueOperators map[string]queue_config.OperatorQueueConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
@@ -41,9 +39,10 @@ func Init(
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
-	svc.conf = sConf
+	svc.retriesWg = make(map[int64]*sync.WaitGroup, len(serviceConf.Operators))
+
+	svc.conf = serviceConf
 	svc.dbConf = dbConf
-	svc.conf.QueueOperators = queueOperators
 
 	initMetrics()
 
@@ -52,20 +51,14 @@ func Init(
 	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
 		for range time.Tick(time.Second) {
-			for operatorName, operatorConf := range operatorConfig {
-				if !operatorConf.RetriesEnabled {
+			for operatorName, operatorConf := range serviceConf.Operators {
+				if !operatorConf.Enabled || !operatorConf.Retries.Enabled {
 					log.WithFields(log.Fields{
 						"operator": operatorName,
 					}).Debug("not enabled")
 					continue
 				}
-				queue, ok := queueOperators[operatorName]
-				if !ok {
-					log.WithFields(log.Fields{
-						"operator": operatorName,
-					}).Fatal("queue is not defined")
-				}
-				queueSize, err := svc.notifier.GetQueueSize(queue.Requests)
+				queueSize, err := svc.notifier.GetQueueSize(operatorConf.GetRequestsQueueName())
 				if err != nil {
 					log.WithFields(log.Fields{
 						"operator": operatorName,
@@ -74,7 +67,7 @@ func Init(
 					continue
 				}
 
-				queueResponsesSize, err := svc.notifier.GetQueueSize(queue.Responses)
+				queueResponsesSize, err := svc.notifier.GetQueueSize(operatorConf.GetResponsesQueueName())
 				if err != nil {
 					log.WithFields(log.Fields{
 						"operator": operatorName,
@@ -87,10 +80,10 @@ func Init(
 					"operator":       operatorName,
 					"queueRequests":  queueSize,
 					"queueResponses": queueResponsesSize,
-					"waitFor":        operatorConf.OperatorRequestQueueSize,
+					"waitFor":        operatorConf.Retries.QueueSize,
 				}).Debug("")
-				if queueSize <= operatorConf.OperatorRequestQueueSize &&
-					queueResponsesSize <= operatorConf.OperatorRequestQueueSize {
+				if queueSize <= operatorConf.Retries.QueueSize &&
+					queueResponsesSize <= operatorConf.Retries.QueueSize {
 					operator, err := inmem_client.GetOperatorByName(operatorName)
 					if err != nil {
 						log.WithFields(log.Fields{
@@ -99,24 +92,55 @@ func Init(
 						}).Error("cannot find operator by operator name")
 						continue
 					}
-					processRetries(operator.Code, operatorConf.GetFromDBRetryCount)
+					// XXX: if more than two operators work,
+					// another wait, it's not ok
+					processRetries(operator.Code, operatorConf.Retries.FromDBCount)
 				}
 			}
 		}
 	}()
 
-	svc.consumer = make(map[string]Consumers, len(operatorConfig))
-	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
-	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
-	svc.operatorSMSResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(operatorConfig))
+	svc.consumer = make(map[string]Consumers, len(serviceConf.Operators))
+	svc.MOTarifficateRequestsChan = make(map[string]<-chan amqp_driver.Delivery, len(serviceConf.Operators))
+	svc.operatorTarifficateResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(serviceConf.Operators))
+	svc.operatorSMSResponsesChan = make(map[string]<-chan amqp_driver.Delivery, len(serviceConf.Operators))
 
-	for operatorName, queue := range queueOperators {
+	for operatorName, opConf := range serviceConf.Operators {
+		if !opConf.Enabled {
+			log.WithFields(log.Fields{
+				"operator": operatorName,
+				"enabled":  "false",
+			}).Debug("skip")
+			continue
+		}
+
 		log.Info("initialising operator " + operatorName)
+		moConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["mo"]
+		if !ok {
+			log.WithFields(log.Fields{
+				"operator": operatorName,
+				"type":     "mo",
+			}).Fatal("no consume settings")
+		}
+		responsesConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["responses"]
+		if !ok {
+			log.WithFields(log.Fields{
+				"operator": operatorName,
+				"type":     "responses",
+			}).Fatal("no consume settings")
+		}
+		smsConsumeSettings, ok := serviceConf.ConsumeSettings[operatorName].Config["sms_responses"]
+		if !ok {
+			log.WithFields(log.Fields{
+				"operator": operatorName,
+				"type":     "sms_responses",
+			}).Fatal("no consume settings")
+		}
 
 		svc.consumer[operatorName] = Consumers{
-			Mo:           amqp.NewConsumer(consumerConfig, queue.MOTarifficate, consumerConfig.QueuePrefetchCount),
-			Responses:    amqp.NewConsumer(consumerConfig, queue.Responses, consumerConfig.QueuePrefetchCount),
-			SMSResponses: amqp.NewConsumer(consumerConfig, queue.SMSResponse, consumerConfig.QueuePrefetchCount),
+			Mo:           amqp.NewConsumer(consumerConfig, opConf.GetMOQueueName(), moConsumeSettings.PrefetchCount),
+			Responses:    amqp.NewConsumer(consumerConfig, opConf.GetResponsesQueueName(), responsesConsumeSettings.PrefetchCount),
+			SMSResponses: amqp.NewConsumer(consumerConfig, opConf.GetSMSResponsesQueueName(), smsConsumeSettings.PrefetchCount),
 		}
 		if err := svc.consumer[operatorName].Mo.Connect(); err != nil {
 			log.Fatal("rbmq consumer connect:", err.Error())
@@ -133,9 +157,9 @@ func Init(
 			svc.consumer[operatorName].Mo,
 			svc.MOTarifficateRequestsChan[operatorName],
 			processSubscriptions,
-			sConf.ThreadsCount,
-			queue.MOTarifficate,
-			queue.MOTarifficate,
+			moConsumeSettings.ThreadsCount,
+			opConf.GetMOQueueName(),
+			opConf.GetMOQueueName(),
 		)
 
 		// queue for responses
@@ -143,9 +167,9 @@ func Init(
 			svc.consumer[operatorName].Responses,
 			svc.operatorTarifficateResponsesChan[operatorName],
 			processResponses,
-			sConf.ThreadsCount,
-			queue.Responses,
-			queue.Responses,
+			responsesConsumeSettings.ThreadsCount,
+			opConf.GetResponsesQueueName(),
+			opConf.GetResponsesQueueName(),
 		)
 
 		// queue for sms responses
@@ -153,9 +177,9 @@ func Init(
 			svc.consumer[operatorName].SMSResponses,
 			svc.operatorSMSResponsesChan[operatorName],
 			processSMSResponses,
-			sConf.ThreadsCount,
-			queue.SMSResponse,
-			queue.SMSResponse,
+			smsConsumeSettings.ThreadsCount,
+			opConf.GetSMSResponsesQueueName(),
+			opConf.GetSMSResponsesQueueName(),
 		)
 	}
 }
@@ -169,7 +193,7 @@ type MTService struct {
 	notifier                         *amqp.Notifier
 	consumer                         map[string]Consumers
 	prevCache                        *cache.Cache
-	retriesWg                        sync.WaitGroup
+	retriesWg                        map[int64]*sync.WaitGroup
 }
 
 type Consumers struct {
@@ -178,20 +202,17 @@ type Consumers struct {
 	SMSResponses *amqp.Consumer
 }
 
-type OperatorQueueConfig struct {
-	NewSubscription string `yaml:"-"`
-	Requests        string `yaml:"-"`
-	Responses       string `yaml:"-"`
-	SMS             string `yaml:"-"`
-}
 type QueuesConfig struct {
 	Pixels    string `default:"pixels" yaml:"pixels"`
 	DBActions string `default:"mt_manager" yaml:"db_actions"`
 }
+type ConsumeSettingsConfig struct {
+	Config map[string]config.ConsumeQueueConfig
+}
 type MTServiceConfig struct {
-	ThreadsCount   int                                         `default:"1" yaml:"threads_count"`
-	Queues         QueuesConfig                                `yaml:"queues"`
-	QueueOperators map[string]queue_config.OperatorQueueConfig `yaml:"-"`
+	Queues          QueuesConfig                     `yaml:"queues"`
+	Operators       map[string]config.OperatorConfig `yaml:"operators"`
+	ConsumeSettings map[string]ConsumeSettingsConfig `yaml:"consume_queues"`
 }
 
 func notifyPixel(msg pixels.Pixel) (err error) {
