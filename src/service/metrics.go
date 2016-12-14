@@ -27,6 +27,7 @@ var (
 	SubscritpionsDropped        m.Gauge
 	SubscritpionsErrors         m.Gauge
 	SubscritpionsSent           m.Gauge
+	RetriesSent                 m.Gauge
 	TarificateFailed            m.Gauge
 	TarificateResponsesReceived m.Gauge
 	ResponseDropped             m.Gauge
@@ -90,6 +91,7 @@ func initMetrics() {
 	PendingSubscriptionsCount = m.PrometheusGauge("pending", "subscriptions", "count", "pending subscriptions count")
 
 	Paid = m.NewGauge("", "", "paid", "paid")
+	RetriesSent = m.NewGauge("", "retries", "sent", "paid")
 
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -105,6 +107,7 @@ func initMetrics() {
 			Rejected.Update()
 			BlackListed.Update()
 			Paid.Update()
+			RetriesSent.Update()
 			Pixel.Update()
 
 			SubscritpionsDropped.Update()

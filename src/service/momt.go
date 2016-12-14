@@ -212,6 +212,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
 		return err
 	}
+	RetriesSent.Inc()
 	svc.retriesWg[record.OperatorCode].Done()
 	return nil
 }
