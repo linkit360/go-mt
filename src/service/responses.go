@@ -194,14 +194,17 @@ func handleResponse(record rec.Record) error {
 
 	// retry
 	if record.AttemptsCount >= 1 {
-		logCtx.WithFields(log.Fields{
-			"attemptsCount": record.AttemptsCount,
-		}).Debug("process retry")
-
 		now := time.Now()
 
+		logCtx.WithFields(log.Fields{
+			"createdAt":      record.CreatedAt,
+			"KeepDays":       record.KeepDays,
+			"spentInRetries": now.Sub(record.CreatedAt).Hours(),
+			"KeepHours":      (time.Duration(24*record.KeepDays) * time.Hour).Hours(),
+		}).Debug("process retry")
+
 		remove := false
-		if record.CreatedAt.Sub(now).Hours() >
+		if now.Sub(record.CreatedAt).Hours() >
 			(time.Duration(24*record.KeepDays) * time.Hour).Hours() {
 			logCtx.Info("remove retry: keep days expired")
 			remove = true

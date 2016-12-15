@@ -17,13 +17,13 @@ service:
         queue_size: 1500
         from_db_count: 1500
 
-    yondu:
-      name: yondu
-      enabled: false
-      retries:
-        enabled: false
-        queue_size: 1500
-        from_db_count: 1500
+#    yondu:
+#      name: yondu
+#      enabled: false
+#      retries:
+#        enabled: false
+#        queue_size: 1500
+#        from_db_count: 1500
 
   consume_queues:
     mobilink:
@@ -37,16 +37,16 @@ service:
         prefetch_count: 10
         threads_count: 10
 
-    yondu:
-      mo:
-        prefetch_count: 10
-        threads_count: 10
-      responses:
-        prefetch_count: 10
-        threads_count: 10
-      sms_responses:
-        prefetch_count: 10
-        threads_count: 10
+#    yondu:
+#      mo:
+#        prefetch_count: 10
+#        threads_count: 10
+#      responses:
+#        prefetch_count: 10
+#        threads_count: 10
+#      sms_responses:
+#        prefetch_count: 10
+#        threads_count: 10
 
 db:
   conn_ttl: -1
