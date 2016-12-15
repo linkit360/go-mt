@@ -337,6 +337,7 @@ func writeTransaction(msg rec.Record) (err error) {
 	return _notifyDBAction("WriteTransaction", msg)
 }
 func _notifyDBAction(eventName string, msg rec.Record) (err error) {
+	msg.SentAt = time.Now().UTC()
 	defer func() {
 		if err != nil {
 			NotifyErrors.Inc()
