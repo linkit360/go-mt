@@ -93,6 +93,7 @@ func processRetries(operatorCode int64, retryCount int) {
 		}).Error("get retries")
 		return
 	}
+	SinceRetryStartProcessed.Set(.0)
 	log.WithFields(log.Fields{
 		"code":      operatorCode,
 		"count":     retryCount,
@@ -227,6 +228,7 @@ func handleRetry(record rec.Record) error {
 	}
 	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator call")
 	RetriesSent.Inc()
+
 	svc.retriesWg[record.OperatorCode].Done()
 	return nil
 }

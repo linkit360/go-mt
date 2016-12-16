@@ -50,7 +50,8 @@ func Init(
 
 	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
-		for range time.Tick(time.Second) {
+		for {
+			time.Sleep(time.Second)
 			for operatorName, operatorConf := range serviceConf.Operators {
 				if !operatorConf.Enabled || !operatorConf.Retries.Enabled {
 					log.WithFields(log.Fields{

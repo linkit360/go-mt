@@ -13,6 +13,7 @@ import (
 
 var (
 	SinceSuccessPaid            prometheus.Gauge
+	SinceRetryStartProcessed    prometheus.Gauge
 	SetPendingStatusDuration    prometheus.Summary
 	SetPendingStatusErrors      m.Gauge
 	OperatorNotEnabled          m.Gauge
@@ -54,15 +55,12 @@ func newGaugeSubscritpions(name, help string) m.Gauge {
 
 func initMetrics() {
 
-	SinceSuccessPaid = m.PrometheusGauge(
-		"",
-		"payment",
-		"since_success_paid_seconds",
-		"Seconds ago from successful payment from any operator",
-	)
+	SinceSuccessPaid = m.PrometheusGauge("", "payment", "since_success_paid_seconds", "Seconds ago from successful payment from any operator")
+	SinceRetryStartProcessed = m.PrometheusGauge("", "since", "last_retries_fetch_seconds", "Seconds since got retries from database")
 	go func() {
 		for range time.Tick(time.Second) {
 			SinceSuccessPaid.Inc()
+			SinceRetryStartProcessed.Inc()
 		}
 	}()
 	Errors = newGaugeNotPaid("errors", "Errors during processing")
