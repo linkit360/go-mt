@@ -3,18 +3,15 @@ package service
 import (
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"fmt"
 	m "github.com/vostrok/utils/metrics"
-	rec "github.com/vostrok/utils/rec"
 )
 
 var (
 	SinceSuccessPaid            prometheus.Gauge
-	PendingRetriesCount         prometheus.Gauge
-	PendingSubscriptionsCount   prometheus.Gauge
+	SetPendingStatusDuration    prometheus.Summary
+	SetPendingStatusErrors      m.Gauge
 	OperatorNotEnabled          m.Gauge
 	OperatorNotApplicable       m.Gauge
 	NotifyErrors                m.Gauge
@@ -76,7 +73,7 @@ func initMetrics() {
 	BlackListed = newGaugeNotPaid("blacklisted", "Blacklisted count")
 
 	Pixel = newGaugeNotPaid("pixel", "Number of new subscriptions with pixel")
-
+	SetPendingStatusErrors = m.NewGauge("", "", "set_pending_status_errors", "set_pending status")
 	SubscritpionsDropped = newGaugeSubscritpions("dropped", "dropped")
 	SubscritpionsErrors = newGaugeSubscritpions("errors", "errors")
 	SubscritpionsSent = newGaugeSubscritpions("sent", "sent")
@@ -92,6 +89,7 @@ func initMetrics() {
 
 	Paid = m.NewGauge("", "", "paid", "paid")
 	RetriesSent = m.NewGauge("", "retries", "sent", "paid")
+	SetPendingStatusDuration = m.NewSummary("set_pending_status_db_duration_seconds", "set pending status duration seconds")
 
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -109,6 +107,7 @@ func initMetrics() {
 			Paid.Update()
 			RetriesSent.Update()
 			Pixel.Update()
+			SetPendingStatusErrors.Update()
 
 			SubscritpionsDropped.Update()
 			SubscritpionsErrors.Update()
@@ -122,29 +121,4 @@ func initMetrics() {
 		}
 	}()
 
-	go func() {
-		for range time.Tick(time.Minute) {
-			retriesCount, err := rec.GetPendingRetriesCount()
-			if err != nil {
-				err = fmt.Errorf("rec.GetPendingRetriesCount: %s", err.Error())
-				log.WithFields(log.Fields{
-					"error": err.Error(),
-				}).Error("get pending retries")
-				PendingRetriesCount.Set(float64(10000000))
-			} else {
-				PendingRetriesCount.Set(float64(retriesCount))
-			}
-
-			moCount, err := rec.GetPendingSubscriptionsCount()
-			if err != nil {
-				err = fmt.Errorf("rec.GetPendingSubscriptionsCount: %s", err.Error())
-				log.WithFields(log.Fields{
-					"error": err.Error(),
-				}).Error("get mo")
-				PendingSubscriptionsCount.Set(float64(100000000))
-			} else {
-				PendingSubscriptionsCount.Set(float64(moCount))
-			}
-		}
-	}()
 }

@@ -83,7 +83,8 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 }
 
 func processRetries(operatorCode int64, retryCount int) {
-	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
+	begin := time.Now()
+	retries, retryIds, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"code":  operatorCode,
@@ -96,18 +97,19 @@ func processRetries(operatorCode int64, retryCount int) {
 		"code":      operatorCode,
 		"count":     retryCount,
 		"gotFromDB": len(retries),
+		"took":      time.Since(begin),
 	}).Info("retries")
 
 	if len(retries) == 0 {
 		return
 	}
 
-	begin := time.Now()
+	begin = time.Now()
 	defer func() {
 		log.WithFields(log.Fields{
-			"code":      operatorCode,
-			"gotFromDB": len(retries),
-			"took":      time.Since(begin),
+			"code":  operatorCode,
+			"count": len(retries),
+			"took":  time.Since(begin),
 		}).Debug("done process retries")
 	}()
 
@@ -116,6 +118,16 @@ func processRetries(operatorCode int64, retryCount int) {
 		svc.retriesWg[operatorCode].Add(1)
 		go handleRetry(r)
 	}
+	begin = time.Now()
+	if err := rec.SetRetryiesStatus("pending", retryIds); err != nil {
+		SetPendingStatusErrors.Inc()
+		log.WithFields(log.Fields{
+			"error": err.Error(),
+			"ids":   fmt.Sprintf("%#v", retryIds),
+		}).Debug("set pending status error")
+	}
+	SetPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 	svc.retriesWg[operatorCode].Wait()
 }
 
@@ -129,6 +141,7 @@ func handleRetry(record rec.Record) error {
 	})
 	logCtx.Debug("start processsing")
 
+	begin := time.Now()
 	logCtx.Debug("blacklist checks..")
 	blackListed, err := inmem_client.IsBlackListed(record.Msisdn)
 	if err != nil {
@@ -138,6 +151,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("cann't get is blacklisted")
 		return err
 	}
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("blacklist inmem call")
 	if blackListed {
 		BlackListed.Inc()
 
@@ -159,6 +173,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.Debug("not blacklisted, start postpaid checks..")
 	}
 
+	begin = time.Now()
 	postPaid, err := inmem_client.IsPostPaid(record.Msisdn)
 	if err != nil {
 		Errors.Inc()
@@ -167,6 +182,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("cann't get postpaid")
 		return err
 	}
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("postpaid inmem call")
 	if postPaid {
 		PostPaid.Inc()
 
@@ -187,6 +203,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.Debug("not postpaid, send to operator..")
 	}
 
+	begin = time.Now()
 	operator, err := inmem_client.GetOperatorByCode(record.OperatorCode)
 	if err != nil {
 		Errors.Inc()
@@ -196,14 +213,12 @@ func handleRetry(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("can't process")
 		return err
 	}
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("operator by code inmem call")
+
 	operatorName := strings.ToLower(operator.Name)
 	queue := config.RequestQueue(operatorName)
 	priority := uint8(0)
-	if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
-		Errors.Inc()
-		return err
-	}
-
+	begin = time.Now()
 	if err := notifyOperatorRequest(queue, priority, "charge", record); err != nil {
 		Errors.Inc()
 		NotifyErrors.Inc()
@@ -212,6 +227,7 @@ func handleRetry(record rec.Record) error {
 		logCtx.WithField("error", err.Error()).Error("Cannot send to operator queue")
 		return err
 	}
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator call")
 	RetriesSent.Inc()
 	svc.retriesWg[record.OperatorCode].Done()
 	return nil
