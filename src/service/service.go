@@ -48,7 +48,6 @@ func Init(
 
 	svc.notifier = amqp.NewNotifier(publisherConf)
 
-	// get a signal and send them to operator requests queue in rabbitmq
 	go func() {
 		for {
 			time.Sleep(time.Second)

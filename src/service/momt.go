@@ -106,13 +106,6 @@ func processRetries(operatorCode int64, retryCount int) {
 	}
 
 	begin = time.Now()
-	defer func() {
-		log.WithFields(log.Fields{
-			"code":  operatorCode,
-			"count": len(retries),
-			"took":  time.Since(begin),
-		}).Debug("done process retries")
-	}()
 
 	svc.retriesWg[operatorCode] = &sync.WaitGroup{}
 	for _, r := range retries {
@@ -120,11 +113,19 @@ func processRetries(operatorCode int64, retryCount int) {
 		go handleRetry(r)
 	}
 	svc.retriesWg[operatorCode].Wait()
+	log.WithFields(log.Fields{
+		"code":  operatorCode,
+		"count": len(retries),
+		"took":  time.Since(begin),
+	}).Debug("done process retries")
+
 }
 
 // for retries: set price
 // set paid hours
 func handleRetry(record rec.Record) error {
+
+	defer svc.retriesWg[record.OperatorCode].Done()
 
 	logCtx := log.WithFields(log.Fields{
 		"tid":            record.Tid,
@@ -229,7 +230,6 @@ func handleRetry(record rec.Record) error {
 	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator call")
 	RetriesSent.Inc()
 
-	svc.retriesWg[record.OperatorCode].Done()
 	return nil
 }
 
