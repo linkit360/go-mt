@@ -84,7 +84,7 @@ func processSubscriptions(deliveries <-chan amqp.Delivery) {
 
 func processRetries(operatorCode int64, retryCount int) {
 	begin := time.Now()
-	retries, retryIds, err := rec.GetRetryTransactions(operatorCode, retryCount)
+	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"code":  operatorCode,
@@ -118,16 +118,6 @@ func processRetries(operatorCode int64, retryCount int) {
 		svc.retriesWg[operatorCode].Add(1)
 		go handleRetry(r)
 	}
-	begin = time.Now()
-	if err := rec.SetRetryiesStatus("pending", retryIds); err != nil {
-		SetPendingStatusErrors.Inc()
-		log.WithFields(log.Fields{
-			"error": err.Error(),
-			"ids":   fmt.Sprintf("%#v", retryIds),
-		}).Debug("set pending status error")
-	}
-	SetPendingStatusDuration.Observe(time.Since(begin).Seconds())
-
 	svc.retriesWg[operatorCode].Wait()
 }
 
@@ -218,6 +208,14 @@ func handleRetry(record rec.Record) error {
 	operatorName := strings.ToLower(operator.Name)
 	queue := config.RequestQueue(operatorName)
 	priority := uint8(0)
+
+	begin = time.Now()
+	if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
+		Errors.Inc()
+		return err
+	}
+	SetPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 	begin = time.Now()
 	if err := notifyOperatorRequest(queue, priority, "charge", record); err != nil {
 		Errors.Inc()

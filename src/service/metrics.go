@@ -1,11 +1,14 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
 
 	m "github.com/vostrok/utils/metrics"
+	rec "github.com/vostrok/utils/rec"
 )
 
 var (
@@ -32,6 +35,8 @@ var (
 	ResponseSuccess             m.Gauge
 	ResponseSMSErrors           m.Gauge
 	ResponseSMSSuccess          m.Gauge
+	PendingRetriesCount         prometheus.Gauge
+	PendingSubscriptionsCount   prometheus.Gauge
 )
 
 func newGaugeResponse(name, help string) m.Gauge {
@@ -118,6 +123,32 @@ func initMetrics() {
 			ResponseSuccess.Update()
 			ResponseSMSErrors.Update()
 			ResponseSMSSuccess.Update()
+		}
+	}()
+
+	go func() {
+		for range time.Tick(time.Minute) {
+			retriesCount, err := rec.GetPendingRetriesCount()
+			if err != nil {
+				err = fmt.Errorf("rec.GetPendingRetriesCount: %s", err.Error())
+				log.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("get pending retries")
+				PendingRetriesCount.Set(float64(10000000))
+			} else {
+				PendingRetriesCount.Set(float64(retriesCount))
+			}
+
+			moCount, err := rec.GetPendingSubscriptionsCount()
+			if err != nil {
+				err = fmt.Errorf("rec.GetPendingSubscriptionsCount: %s", err.Error())
+				log.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("get mo")
+				PendingSubscriptionsCount.Set(float64(100000000))
+			} else {
+				PendingSubscriptionsCount.Set(float64(moCount))
+			}
 		}
 	}()
 
