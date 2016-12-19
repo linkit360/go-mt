@@ -126,7 +126,7 @@ func initMetrics() {
 
 	go func() {
 		for range time.Tick(time.Minute) {
-			retriesCount, err := rec.GetPendingRetriesCount()
+			retriesCount, err := rec.GetSuspendedRetriesCount()
 			if err != nil {
 				err = fmt.Errorf("rec.GetPendingRetriesCount: %s", err.Error())
 				log.WithFields(log.Fields{
