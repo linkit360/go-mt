@@ -25,6 +25,7 @@ import (
 var svc MTService
 
 func Init(
+	appName string,
 	serviceConf MTServiceConfig,
 	inMemConfig inmem_client.RPCClientConfig,
 	dbConf db.DataBaseConfig,
@@ -44,7 +45,7 @@ func Init(
 	svc.conf = serviceConf
 	svc.dbConf = dbConf
 
-	initMetrics()
+	initMetrics(appName)
 
 	svc.notifier = amqp.NewNotifier(publisherConf)
 

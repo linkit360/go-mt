@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -31,11 +30,6 @@ import (
 
 // here are functions to sent tarifficate requests to operator
 // retries and subscritpions
-
-type EventNotifyTarifficate struct {
-	EventName string     `json:"event_name"`
-	EventData rec.Record `json:"event_data"`
-}
 
 func processSubscriptions(deliveries <-chan amqp.Delivery) {
 	for msg := range deliveries {

@@ -15,14 +15,12 @@ package service
 // listen to operator responses queue
 // make all needed operations with retries, subscritpions to mark records as processed
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/streadway/amqp"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/utils/config"
