@@ -8,15 +8,44 @@ service:
   queues:
     pixels: pixels
     db_actions: mt_manager
+    transactions_log: transactions_log
 
-  operators:
-    mobilink:
-      name: mobilink
+  mobilink:
+    enabled: true
+    name: mobilink
+    operator_code: 41001
+    retries:
       enabled: true
-      retries:
-        enabled: true
-        queue_size: 1500
-        from_db_count: 1500
+      fetch_count: 2500
+      check_queues_free:
+      - "mobilink_requests"
+      - "mt_manager"
+      queue_free_size: 2500
+    periodic:
+      enabled: false
+    new:
+      name: mobilink_new_subscriptions
+      enabled: true
+      prefetch_count: 100
+      threads_count: 10
+    mo:
+      name: mobilink_mo_tarifficate
+      enabled: true
+      prefetch_count: 100
+      threads_count: 10
+    responses:
+      name: mobilink_responses
+      enabled: true
+      prefetch_count: 100
+      threads_count: 10
+    sms_responses:
+      name: mobilink_sms_responses
+      enabled: true
+      prefetch_count: 100
+      threads_count: 10
+    requests: mobilink_requests
+    sms_requests: mobilink_requests
+
 
 #    yondu:
 #      name: yondu
@@ -25,20 +54,6 @@ service:
 #        enabled: false
 #        queue_size: 1500
 #        from_db_count: 1500
-
-  consume_queues:
-    mobilink:
-      mo:
-        prefetch_count: 10
-        threads_count: 10
-      responses:
-        prefetch_count: 10
-        threads_count: 10
-      sms_responses:
-        prefetch_count: 10
-        threads_count: 10
-
-#    yondu:
 #      mo:
 #        prefetch_count: 10
 #        threads_count: 10
@@ -51,7 +66,8 @@ service:
 
 db:
   conn_ttl: -1
-  max_conns: 15
+  max_open_conns: 15
+  max_idle_conns: 10
   timeout: 30
   name: linkit_dev
   user: linkit
