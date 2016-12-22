@@ -44,13 +44,6 @@ type MobilinkConfig struct {
 	SMSResponses    queue_config.ConsumeQueueConfig `yaml:"sms_responses"`
 }
 
-type RetriesConfig struct {
-	Enabled         bool     `yaml:"enabled" default:"true"`
-	FetchCount      int      `yaml:"fetch_count" default:"2500"`
-	CheckQueuesFree []string `yaml:"check_queues_free"`
-	QueueFreeSize   int      `yaml:"queue_free_size" default:"2500"`
-}
-
 func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *mobilink {
 	if !mbConfig.Enabled {
 		return
@@ -160,7 +153,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 					"operator": mbConfig.OperatorName,
 					"waitFor":  mbConfig.Retries.QueueFreeSize,
 				}).Debug("achieve free queues size")
-				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchCount, mb.sendToTelcoAPI)
+				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchCount, mb.publishToTelcoAPI)
 			}
 		}()
 
@@ -168,6 +161,10 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	return mb
 }
 
+// ============================================================
+// new subscriptions came from dispatcherd
+// one thing - insert in db
+// and send in mo queue
 type EventNotifyNewSubscription struct {
 	EventName string     `json:"event_name,omitempty"`
 	EventData rec.Record `json:"event_data,omitempty"`
@@ -230,12 +227,25 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		}
 	}
 }
-
-type EventNotifyNewSubscription struct {
-	EventName string     `json:"event_name,omitempty"`
-	EventData rec.Record `json:"event_data,omitempty"`
+func (mb *mobilink) sendToMO(r rec.Record) error {
+	event := amqp.EventNotify{
+		EventName: "mo",
+		EventData: r,
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		err = fmt.Errorf("json.Marshal: %s", err.Error())
+		return
+	}
+	svc.notifier.Publish(amqp.AMQPMessage{QueueName: mb.conf.MO.Name, Body: body})
+	return nil
 }
 
+// ============================================================
+// new subscriptions came from dispatcherd
+// checks for MO
+// set/get rejected cache
+// publish to telco
 func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var ns EventNotifyNewSubscription
@@ -260,7 +270,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 			continue
 		}
 		if r.SubscriptionStatus == "" {
-			if err := mb.sendToTelcoAPI(1, r); err != nil {
+			if err := mb.publishToTelcoAPI(1, r); err != nil {
 				log.WithFields(log.Fields{
 					"tid":   r.Tid,
 					"error": err.Error(),
@@ -280,7 +290,42 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		}
 	}
 }
+func (mb *mobilink) initPrevSubscriptionsCache() {
+	prev, err := rec.LoadPreviousSubscriptions(mb.conf.OperatorCode)
+	if err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
+	}
+	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
+	mb.prevCache = cache.New(24*time.Hour, time.Minute)
+	for _, v := range prev {
+		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
+		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
+	}
+}
+func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
+	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	_, found := mb.prevCache.Get(key)
+	log.WithFields(log.Fields{
+		"tid":   r.Tid,
+		"key":   key,
+		"found": found,
+	}).Debug("get previous subscription cache")
+	return found
+}
+func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	_, found := mb.prevCache.Get(key)
+	if !found {
+		mb.prevCache.Set(key, struct{}{}, 24*time.Hour)
+		log.WithFields(log.Fields{
+			"tid": r.Tid,
+			"key": key,
+		}).Debug("set previous subscription cache")
+	}
+}
 
+// ============================================================
+// metrics
 type MobilinkMetrics struct {
 	Dropped            m.Gauge
 	Empty              m.Gauge
@@ -326,54 +371,10 @@ func (mb *mobilink) initMetrics() {
 	}()
 	mb.m = mbm
 }
-func (mb *mobilink) initPrevSubscriptionsCache() {
-	prev, err := rec.LoadPreviousSubscriptions(mb.conf.OperatorCode)
-	if err != nil {
-		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
-	}
-	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
-	mb.prevCache = cache.New(24*time.Hour, time.Minute)
-	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
-		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
-	}
-}
-func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
-	_, found := mb.prevCache.Get(key)
-	log.WithFields(log.Fields{
-		"tid":   r.Tid,
-		"key":   key,
-		"found": found,
-	}).Debug("get previous subscription cache")
-	return found
-}
-func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
-	_, found := mb.prevCache.Get(key)
-	if !found {
-		mb.prevCache.Set(key, struct{}{}, 24*time.Hour)
-		log.WithFields(log.Fields{
-			"tid": r.Tid,
-			"key": key,
-		}).Debug("set previous subscription cache")
-	}
-}
-func (mb *mobilink) sendToMO(r rec.Record) error {
-	event := amqp.EventNotify{
-		EventName: "mo",
-		EventData: r,
-	}
-	body, err := json.Marshal(event)
-	if err != nil {
-		err = fmt.Errorf("json.Marshal: %s", err.Error())
-		return
-	}
-	svc.notifier.Publish(amqp.AMQPMessage{QueueName: mb.conf.MO.Name, Body: body})
-	return nil
-}
 
-func (mb *mobilink) sendToTelcoAPI(priority uint8, r rec.Record) (err error) {
+// ============================================================
+// notifier functions
+func (mb *mobilink) publishToTelcoAPI(priority uint8, r rec.Record) (err error) {
 	event := amqp.EventNotify{
 		EventName: "charge",
 		EventData: r,
@@ -386,7 +387,7 @@ func (mb *mobilink) sendToTelcoAPI(priority uint8, r rec.Record) (err error) {
 	svc.notifier.Publish(amqp.AMQPMessage{QueueName: mb.conf.Requests, Priority: priority, Body: body})
 	return nil
 }
-func (mb *mobilink) sendToTelcoAPISMS(r rec.Record) (err error) {
+func (mb *mobilink) publishToTelcoAPISMS(r rec.Record) (err error) {
 	event := amqp.EventNotify{
 		EventName: "send_sms",
 		EventData: r,
@@ -400,6 +401,8 @@ func (mb *mobilink) sendToTelcoAPISMS(r rec.Record) (err error) {
 	return nil
 }
 
+// ============================================================
+// responses
 func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		log.WithFields(log.Fields{
@@ -434,9 +437,8 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 		}
 	}
 }
-
 func (mb *mobilink) handleResponse(r rec.Record) error {
-	if err := checkResponse(&r); err != nil {
+	if err := processResponse(&r); err != nil {
 		return err
 	}
 	logCtx := log.WithFields(log.Fields{
@@ -485,7 +487,22 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 
 	return nil
 }
+func (mb *mobilink) smsSend(record rec.Record, msg string) error {
+	record.SMSText = msg
+	if err := mb.publishToTelcoAPISMS(record); err != nil {
+		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), mb.conf.SMSRequests)
+		log.WithFields(log.Fields{
+			"tid":    record.Tid,
+			"msisdn": record.Msisdn,
+			"error":  err.Error(),
+		}).Error("cannot send sms")
+		return err
+	}
+	return nil
+}
 
+// ============================================================
+// sms responses
 func (mb *mobilink) processSMSResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		log.WithFields(log.Fields{
@@ -522,21 +539,6 @@ func (mb *mobilink) processSMSResponses(deliveries <-chan amqp_driver.Delivery) 
 
 	}
 }
-
-func (mb *mobilink) smsSend(record rec.Record, msg string) error {
-	record.SMSText = msg
-	if err := mb.sendToTelcoAPISMS(record); err != nil {
-		err = fmt.Errorf("notifyOperatorRequest: %s, queue: %s", err.Error(), mb.conf.SMSRequests)
-		log.WithFields(log.Fields{
-			"tid":    record.Tid,
-			"msisdn": record.Msisdn,
-			"error":  err.Error(),
-		}).Error("cannot send sms")
-		return err
-	}
-	return nil
-}
-
 func handleSMSResponse(record rec.Record) error {
 	smsTranasction := record
 	smsTranasction.Result = "sms"

@@ -27,16 +27,16 @@ var (
 )
 
 func newGaugeNotPaid(name, help string) m.Gauge {
-	return m.NewGauge("", "not_paid_status", name, "not paid status "+help)
+	return m.NewGauge(appName, "not_paid_status", name, "not paid status "+help)
 }
 
 func initMetrics(appName string) {
 
-	SinceRetryStartProcessed = m.PrometheusGauge("", "since", "last_retries_fetch_seconds", "Seconds since got retries from database")
-	RetryProcessDuration = m.NewSummary("retry_process_duration_seconds", "retries after fetch processing duration in seconds")
-	SetPendingStatusDuration = m.NewSummary("set_pending_status_db_duration_seconds", "set pending status duration seconds")
-	PendingSubscriptionsCount = m.PrometheusGauge("pending", "subscriptions", "count", "pending subscriptions count")
-	PendingRetriesCount = m.PrometheusGauge("pending", "retries", "count", "pending retries count")
+	SinceRetryStartProcessed = m.PrometheusGauge(appName, "since", "last_retries_fetch_seconds", "Seconds since got retries from database")
+	RetryProcessDuration = m.NewSummary(appName+"_retry_process_duration_seconds", "retries after fetch processing duration in seconds")
+	SetPendingStatusDuration = m.NewSummary(appName+"_set_pending_status_db_duration_seconds", "set pending status duration seconds")
+	PendingSubscriptionsCount = m.PrometheusGauge(appName+"_pending", "subscriptions", "count", "pending subscriptions count")
+	PendingRetriesCount = m.PrometheusGauge(appName+"_pending", "retries", "count", "pending retries count")
 
 	go func() {
 		for range time.Tick(time.Second) {
@@ -46,10 +46,10 @@ func initMetrics(appName string) {
 
 	NotifyErrors = m.NewGauge("", "", "notify_errors", "notify errors")
 	Errors = newGaugeNotPaid("errors", "Errors during processing")
-	PostPaid = newGaugeNotPaid("postpaid", "Postpaid count")
-	Rejected = newGaugeNotPaid("rejected", "Rejected count")
-	BlackListed = newGaugeNotPaid("blacklisted", "Blacklisted count")
-	SetPendingStatusErrors = m.NewGauge("", "", "set_pending_status_errors", "set_pending status")
+	PostPaid = newGaugeNotPaid(appName+"_postpaid", "Postpaid count")
+	Rejected = newGaugeNotPaid(appName+"_rejected", "Rejected count")
+	BlackListed = newGaugeNotPaid(appName+"_blacklisted", "Blacklisted count")
+	SetPendingStatusErrors = m.NewGauge(appName, "", "set_pending_status_errors", "set_pending status")
 
 	go func() {
 		for range time.Tick(time.Minute) {

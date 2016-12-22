@@ -123,7 +123,7 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 	return nil
 }
 
-func checkResponse(r *rec.Record) error {
+func processResponse(r *rec.Record) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid":    r.Tid,
 		"msisdn": r.Msisdn,

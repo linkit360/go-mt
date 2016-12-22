@@ -5,5 +5,6 @@ import (
 )
 
 func main() {
+	defer src.OnExit()
 	src.RunServer()
 }

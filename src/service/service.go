@@ -1,19 +1,16 @@
 package service
 
 import (
-	"strconv"
 	"sync"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
-	cache "github.com/patrickmn/go-cache"
-	amqp_driver "github.com/streadway/amqp"
+	"github.com/syndtr/goleveldb/leveldb"
 
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/utils/amqp"
-	"github.com/vostrok/utils/config"
 	"github.com/vostrok/utils/db"
 	rec "github.com/vostrok/utils/rec"
+	"os"
 )
 
 var svc MTService
@@ -23,6 +20,7 @@ type MTService struct {
 	conf      MTServiceConfig
 	retriesWg map[int64]*sync.WaitGroup
 	notifier  *amqp.Notifier
+	ldb       *leveldb.DB
 	y         *yondu
 	mb        *mobilink
 }
@@ -35,6 +33,13 @@ type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
 	DBActions      string `default:"mt_manager" yaml:"db_actions"`
 	TransactionLog string `default:"transactions_log" yaml:"transactions_log"`
+}
+
+type RetriesConfig struct {
+	Enabled         bool     `yaml:"enabled" default:"true"`
+	FetchCount      int      `yaml:"fetch_count" default:"2500"`
+	CheckQueuesFree []string `yaml:"check_queues_free"`
+	QueueFreeSize   int      `yaml:"queue_free_size" default:"2500"`
 }
 
 func Init(
@@ -62,4 +67,9 @@ func Init(
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig)
 
 	svc.notifier = amqp.NewNotifier(publisherConf)
+}
+
+func SaveState() {
+	log.WithField("savestate", 1).Info("save leveldb state")
+	svc.ldb.Close()
 }

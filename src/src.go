@@ -5,6 +5,7 @@ package src
 // and another method to update cache on demand (CQR)
 // anyway, there is a http method to catch metrics
 import (
+	"os"
 	"runtime"
 
 	log "github.com/Sirupsen/logrus"
@@ -37,4 +38,17 @@ func RunServer() {
 
 	r.Run(":" + appConfig.Server.Port)
 	log.WithField("port", appConfig.Server.Port).Info("mt init")
+}
+
+type Exit struct{ Code int }
+
+func OnExit() {
+	service.SaveState()
+
+	if e := recover(); e != nil {
+		if exit, ok := e.(Exit); ok == true {
+			os.Exit(exit.Code)
+		}
+		panic(e)
+	}
 }
