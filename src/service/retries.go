@@ -18,7 +18,7 @@ type EventNotifyTarifficate struct {
 // get records from db
 // check them
 // and send to telco
-func processRetries(operatorCode int64, retryCount int, notifyFnSendChargeRequest func(uint8, rec.Record)) {
+func processRetries(operatorCode int64, retryCount int, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
 	begin := time.Now()
 	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
@@ -63,7 +63,7 @@ func processRetries(operatorCode int64, retryCount int, notifyFnSendChargeReques
 
 // for retries: set price
 // set paid hours
-func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Record)) error {
+func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Record) error) error {
 
 	defer svc.retriesWg[record.OperatorCode].Done()
 
@@ -74,7 +74,7 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 	})
 	logCtx.Debug("start processsing")
 
-	if err := checkBlackListedPostpaid; err != nil {
+	if err := checkBlackListedPostpaid(&record); err != nil {
 		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
 		return err
 	}

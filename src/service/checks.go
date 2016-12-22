@@ -11,7 +11,7 @@ import (
 )
 
 // chech functions for MO, retries, responses
-func checkMO(record *rec.Record, getPreviousSubscriptionFn, setPreviousSubscriptionFn func(r rec.Record)) error {
+func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bool, setPreviousSubscriptionFn func(r rec.Record)) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid":            record.Tid,
 		"msisdn":         record.Msisdn,
@@ -24,7 +24,7 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn, setPreviousSubscript
 	if record.PaidHours > 0 {
 		logCtx.WithField("paidHours", record.PaidHours).Debug("paid hours > 0")
 
-		hasPrevious := getPreviousSubscriptionFn(record)
+		hasPrevious := getPreviousSubscriptionFn(*record)
 		if hasPrevious {
 			Rejected.Inc()
 
@@ -32,11 +32,11 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn, setPreviousSubscript
 			record.Result = "rejected"
 			record.SubscriptionStatus = "rejected"
 
-			if err := writeSubscriptionStatus(record); err != nil {
+			if err := writeSubscriptionStatus(*record); err != nil {
 				Errors.Inc()
 				return err
 			}
-			if err := writeTransaction(record); err != nil {
+			if err := writeTransaction(*record); err != nil {
 				Errors.Inc()
 				return err
 			}
@@ -49,7 +49,7 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn, setPreviousSubscript
 		return err
 	}
 	if record.PaidHours > 0 {
-		setPreviousSubscriptionFn(record)
+		setPreviousSubscriptionFn(*record)
 	}
 	return nil
 }
@@ -77,12 +77,12 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 		record.Result = "blacklisted"
 		record.SubscriptionStatus = "blacklisted"
 
-		if err := writeSubscriptionStatus(record); err != nil {
+		if err := writeSubscriptionStatus(*record); err != nil {
 			Errors.Inc()
 			return err
 		}
 		if record.AttemptsCount >= 1 {
-			if err := removeRetry(record); err != nil {
+			if err := removeRetry(*record); err != nil {
 				Errors.Inc()
 				return err
 			}
@@ -106,12 +106,12 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 
 		record.Result = "postpaid"
 		record.SubscriptionStatus = "postpaid"
-		if err := writeSubscriptionStatus(record); err != nil {
+		if err := writeSubscriptionStatus(*record); err != nil {
 			Errors.Inc()
 			return err
 		}
 		if record.AttemptsCount >= 1 {
-			if err := removeRetry(record); err != nil {
+			if err := removeRetry(*record); err != nil {
 				Errors.Inc()
 				return err
 			}
@@ -140,7 +140,7 @@ func processResponse(r *rec.Record) error {
 		// we do not notice it in inmem and
 		// subscription redirects again to operator request
 		r.SubscriptionStatus = "postpaid"
-		if err := writeSubscriptionStatus(r); err != nil {
+		if err := writeSubscriptionStatus(*r); err != nil {
 			Errors.Inc()
 			return err
 		}
@@ -158,7 +158,7 @@ func processResponse(r *rec.Record) error {
 				}).Error("add inmem postpaid error")
 				return err
 			}
-			if err := addPostPaidNumber(r); err != nil {
+			if err := addPostPaidNumber(*r); err != nil {
 				Errors.Inc()
 
 				logCtx.WithFields(log.Fields{
@@ -174,7 +174,7 @@ func processResponse(r *rec.Record) error {
 			logCtx.Info("already in postpaid inmem")
 		}
 		if r.AttemptsCount >= 1 {
-			if err := removeRetry(r); err != nil {
+			if err := removeRetry(*r); err != nil {
 				Errors.Inc()
 				return err
 			}
@@ -204,11 +204,11 @@ func processResponse(r *rec.Record) error {
 		"status": r.SubscriptionStatus,
 	}).Info("statuses")
 
-	if err := writeSubscriptionStatus(r); err != nil {
+	if err := writeSubscriptionStatus(*r); err != nil {
 		Errors.Inc()
 		return err
 	}
-	if err := writeTransaction(r); err != nil {
+	if err := writeTransaction(*r); err != nil {
 		Errors.Inc()
 		return err
 	}
@@ -217,7 +217,7 @@ func processResponse(r *rec.Record) error {
 		logCtx.WithFields(log.Fields{
 			"action": "move to retry",
 		}).Debug("mo")
-		if err := startRetry(r); err != nil {
+		if err := startRetry(*r); err != nil {
 			Errors.Inc()
 
 			logCtx.WithFields(log.Fields{
@@ -248,12 +248,12 @@ func processResponse(r *rec.Record) error {
 			remove = true
 		}
 		if remove {
-			if err := removeRetry(r); err != nil {
+			if err := removeRetry(*r); err != nil {
 				Errors.Inc()
 				return err
 			}
 		} else {
-			if err := touchRetry(r); err != nil {
+			if err := touchRetry(*r); err != nil {
 				Errors.Inc()
 				return err
 			}

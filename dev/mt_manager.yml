@@ -5,6 +5,7 @@ server:
   port: 50305
 
 service:
+  leveldb_file: /home/centos/linkit/mt_manager.ldb
   queues:
     pixels: pixels
     db_actions: mt_manager

@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/go-kit/kit/metrics/prometheus"
 	cache "github.com/patrickmn/go-cache"
+	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
 	"github.com/syndtr/goleveldb/leveldb"
@@ -37,7 +38,7 @@ type yondu struct {
 type YonduConfig struct {
 	Enabled         bool                            `yaml:"enabled" default:"false"`
 	OperatorName    string                          `yaml:"operator_name" default:"yondu"`
-	OperatorCode    int                             `yaml:"operator_code" default:"51500"`
+	OperatorCode    int64                           `yaml:"operator_code" default:"51500"`
 	Periodic        PeriodicConfig                  `yaml:"periodic" `
 	Retries         RetriesConfig                   `yaml:"retries"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
@@ -54,7 +55,7 @@ type PeriodicConfig struct {
 
 func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 	if !yConf.Enabled {
-		return
+		return nil
 	}
 	y := &yondu{
 		conf: yConf,
@@ -72,7 +73,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 		}
 		amqp.InitQueue(
 			y.MOConsumer,
-			y.MOConsumer,
+			y.MOCh,
 			y.processNewSubscription,
 			yConf.NewSubscription.ThreadsCount,
 			yConf.NewSubscription.Name,
@@ -91,7 +92,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 		}
 		amqp.InitQueue(
 			y.CallBackConsumer,
-			y.CallBackConsumer,
+			y.CallBackCh,
 			y.processCallBack,
 			yConf.CallBack.ThreadsCount,
 			yConf.CallBack.Name,
@@ -120,7 +121,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 							"queue":    queue,
 							"error":    err.Error(),
 						}).Error("cannot get queue size")
-						return
+						continue retries
 					}
 					log.WithFields(log.Fields{
 						"operator":  yConf.OperatorName,
@@ -198,7 +199,7 @@ func (y *yondu) processPeriodic() {
 		y.setRecCache(r)
 		// todo: get content via content service
 
-		r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, "")
+		r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, "test from moscow")
 
 		if err := y.publishMT(r); err != nil {
 			logCtx.WithField("error", err.Error()).Error("publishYonduMT")
@@ -216,6 +217,11 @@ func (y *yondu) processPeriodic() {
 
 // ============================================================
 // new subscritpion
+type EventNotifyMO struct {
+	EventName string                     `json:"event_name,omitempty"`
+	EventData yondu_service.MOParameters `json:"event_data,omitempty"`
+}
+
 func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
@@ -268,7 +274,7 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 			ServiceId:        r.ServiceId,
 			SubscriptionId:   r.SubscriptionId,
 			CampaignId:       r.CampaignId,
-			RequestBody:      string(msg.Body),
+			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: "",
 			ResponseCode:     200,
@@ -300,23 +306,15 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 
 	}
 }
-
-// ============================================================
-// mo (after new subscription)
-type EventNotifyMO struct {
-	EventName string                     `json:"event_name,omitempty"`
-	EventData yondu_service.MOParameters `json:"event_data,omitempty"`
-}
-
 func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error) {
 	r := rec.Record{}
-	campaign, err := inmem_client.GetCampaignByKeyWord(req.KeyWord)
+	campaign, err := inmem_client.GetCampaignByKeyWord(req.Params.KeyWord)
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
 		err = fmt.Errorf("inmem_client.GetCampaignByKeyWord: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword": req.KeyWord,
+			"keyword": req.Params.KeyWord,
 			"error":   err.Error(),
 		}).Error("cannot get campaign by keyword")
 		return r, err
@@ -327,7 +325,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword":    req.KeyWord,
+			"keyword":    req.Params.KeyWord,
 			"serviceId":  campaign.ServiceId,
 			"campaignId": campaign.Id,
 			"error":      err.Error(),
@@ -341,7 +339,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 
 		err = fmt.Errorf("inmem_client.GetPixelSettingByCampaignId: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword":    req.KeyWord,
+			"keyword":    req.Params.KeyWord,
 			"serviceId":  campaign.ServiceId,
 			"campaignId": campaign.Id,
 			"error":      err.Error(),
@@ -350,13 +348,13 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		publisher = pixelSetting.Publisher
 	}
 
-	sentAt, err := time.Parse("20060102150405", req.Timestamp)
+	sentAt, err := time.Parse("20060102150405", req.Params.Timestamp)
 	if err != nil {
 		y.m.MOParseTimeError.Inc()
 
 		err = fmt.Errorf("time.Parse: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword":    req.KeyWord,
+			"keyword":    req.Params.KeyWord,
 			"serviceId":  campaign.ServiceId,
 			"campaignId": campaign.Id,
 			"error":      err.Error(),
@@ -365,7 +363,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 	}
 	r = rec.Record{
 		SentAt:                   sentAt,
-		Msisdn:                   req.Msisdn,
+		Msisdn:                   req.Params.Msisdn,
 		Tid:                      rec.GenerateTID(),
 		SubscriptionStatus:       "",
 		CountryCode:              515,
@@ -378,7 +376,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		PaidHours:                svc.PaidHours,
 		KeepDays:                 svc.KeepDays,
 		Price:                    100 * int(svc.Price),
-		OperatorToken:            req.TransID,
+		OperatorToken:            req.Params.TransID,
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedToHours:   svc.PeriodicAllowedFrom,
@@ -398,6 +396,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
+		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
 		log.WithFields(log.Fields{
@@ -421,21 +420,15 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		if err != nil {
 			goto ack
 		}
-		if err = checkBlackListedPostpaid(&r); err != nil {
-			log.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Error("checks incompleted")
+		if strings.Contains(e.EventData.Params.StatusCode, "0") {
+			r.Paid = true
+		}
+		if err = processResponse(&r); err != nil {
 			msg.Nack(false, true)
 			continue
 		}
-		if e.EventData.StatusCode == 0 {
-			r.Paid = true
-		}
-		if err := processResponse(&r); err != nil {
-			return err
-		}
 		y.deleteRecCache(r)
-		logCtx := log.WithFields(log.Fields{
+		logCtx = log.WithFields(log.Fields{
 			"tid":    r.Tid,
 			"msisdn": r.Msisdn,
 		})
@@ -451,10 +444,10 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			ServiceId:        r.ServiceId,
 			SubscriptionId:   r.SubscriptionId,
 			CampaignId:       r.CampaignId,
-			RequestBody:      string(msg.Body),
+			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: r.SubscriptionStatus,
-			ResponseCode:     e.EventData.StatusCode,
+			ResponseCode:     200,
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
 		}
@@ -488,21 +481,21 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (rec.Record, error) {
-	r := y.getRecByTransId(req.TransID)
+	r := y.getRecByTransId(req.Params.TransID)
 	if r.SubscriptionId == 0 {
 		y.m.CallBackTransIdError.Inc()
 
-		err := fmt.Errorf("record not found %s", req.TransID)
-		return err
+		err := fmt.Errorf("record not found %s", req.Params.TransID)
+		return rec.Record{}, err
 	}
-	sentAt, err := time.Parse("20060102150405", req.Timestamp)
+	sentAt, err := time.Parse("20060102150405", req.Params.Timestamp)
 	if err != nil {
 		y.m.CallBackParseTimeError.Inc()
 
 		err = fmt.Errorf("time.Parse: %s", err.Error())
 		log.WithFields(log.Fields{
 			"error":     err.Error(),
-			"timestamp": req.Timestamp,
+			"timestamp": req.Params.Timestamp,
 		}).Error("cannot parse callback time")
 		sentAt = time.Now().UTC()
 	}
@@ -654,7 +647,7 @@ const ldbTransIdRecordKey = "yondu_transid_"
 // leveldb cache for pending periodic subscription:
 // get ids and do not initiate new charge if id is in this list
 func (y *yondu) setPendingPeriodicSubscriptionCache(r rec.Record) {
-	err := svc.ldb.Put([]byte(ldbPeriodicKey+r.SubscriptionId), []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
+	err := svc.ldb.Put([]byte(ldbPeriodicKey+strconv.FormatInt(r.SubscriptionId, 10)), []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
@@ -669,7 +662,7 @@ func (y *yondu) setPendingPeriodicSubscriptionCache(r rec.Record) {
 	}).Debug("set record cache")
 }
 func (y *yondu) deletePendingPeriodicSubscriptionCache(r rec.Record) {
-	err := svc.ldb.Delete([]byte(ldbPeriodicKey+r.SubscriptionId), nil)
+	err := svc.ldb.Delete([]byte(ldbPeriodicKey+strconv.FormatInt(r.SubscriptionId, 10)), nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
@@ -699,7 +692,7 @@ func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
 		ids = append(ids, id)
 	}
 	iter.Release()
-	if err := iter.Error(); err != nil {
+	if err = iter.Error(); err != nil {
 		err = fmt.Errorf("iter.Error: %s", err.Error())
 		return
 	}
@@ -711,7 +704,7 @@ func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
 // if no record found in leveldb, then we search in database
 func (y *yondu) getRecByTransId(transId string) rec.Record {
 	var r rec.Record
-	recordJson, err := svc.ldb.Get(ldbTransIdRecordKey + transId)
+	recordJson, err := svc.ldb.Get([]byte(ldbTransIdRecordKey+transId), nil)
 	if err == leveldb.ErrNotFound {
 		log.WithFields(log.Fields{
 			"transid": transId,

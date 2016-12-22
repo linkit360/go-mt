@@ -33,7 +33,7 @@ type mobilink struct {
 type MobilinkConfig struct {
 	Enabled         bool                            `yaml:"enabled" default:"false"`
 	OperatorName    string                          `yaml:"operator_name" default:"mobilink"`
-	OperatorCode    int                             `yaml:"operator_code" default:"41001"`
+	OperatorCode    int64                           `yaml:"operator_code" default:"41001"`
 	Retries         RetriesConfig                   `yaml:"retries"`
 	Periodic        PeriodicConfig                  `yaml:"periodic" `
 	Requests        string                          `yaml:"requests"`
@@ -46,7 +46,7 @@ type MobilinkConfig struct {
 
 func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *mobilink {
 	if !mbConfig.Enabled {
-		return
+		return nil
 	}
 	mb := &mobilink{}
 	mb.initPrevSubscriptionsCache()
@@ -137,7 +137,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 							"queue":    queue,
 							"error":    err.Error(),
 						}).Error("cannot get queue size")
-						return
+						continue retries
 					}
 					log.WithFields(log.Fields{
 						"operator":  mbConfig.OperatorName,
@@ -235,7 +235,7 @@ func (mb *mobilink) sendToMO(r rec.Record) error {
 	body, err := json.Marshal(event)
 	if err != nil {
 		err = fmt.Errorf("json.Marshal: %s", err.Error())
-		return
+		return err
 	}
 	svc.notifier.Publish(amqp.AMQPMessage{QueueName: mb.conf.MO.Name, Body: body})
 	return nil
@@ -250,6 +250,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var ns EventNotifyNewSubscription
 		var r rec.Record
+		var err error
 
 		log.WithField("body", string(msg.Body)).Debug("start process")
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
@@ -264,8 +265,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 		r = ns.EventData
-		err := checkMO(&r, mb.getPrevSubscriptionCache, mb.setPrevSubscriptionCache)
-		if err != nil {
+		if err = checkMO(&r, mb.getPrevSubscriptionCache, mb.setPrevSubscriptionCache); err != nil {
 			msg.Nack(false, true)
 			continue
 		}

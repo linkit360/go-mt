@@ -10,7 +10,6 @@ import (
 	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/db"
 	rec "github.com/vostrok/utils/rec"
-	"os"
 )
 
 var svc MTService
@@ -25,9 +24,10 @@ type MTService struct {
 	mb        *mobilink
 }
 type MTServiceConfig struct {
-	Queues   QueuesConfig   `yaml:"queues"`
-	Yondu    YonduConfig    `yaml:"yondu"`
-	Mobilink MobilinkConfig `yaml:"mobilink"`
+	LevelDBFilePath string         `yaml:"leveldb_file"`
+	Queues          QueuesConfig   `yaml:"queues"`
+	Yondu           YonduConfig    `yaml:"yondu"`
+	Mobilink        MobilinkConfig `yaml:"mobilink"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
@@ -62,6 +62,12 @@ func Init(
 	svc.conf = serviceConf
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
 	initMetrics(appName)
+
+	var err error
+	svc.ldb, err = leveldb.OpenFile(serviceConf.LevelDBFilePath, nil)
+	if err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot init leveldb")
+	}
 
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig)
