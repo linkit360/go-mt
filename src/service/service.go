@@ -37,6 +37,7 @@ type QueuesConfig struct {
 
 type RetriesConfig struct {
 	Enabled         bool     `yaml:"enabled" default:"true"`
+	Period          int      `yaml:"period" default:"600"`
 	FetchCount      int      `yaml:"fetch_count" default:"2500"`
 	CheckQueuesFree []string `yaml:"check_queues_free"`
 	QueueFreeSize   int      `yaml:"queue_free_size" default:"2500"`

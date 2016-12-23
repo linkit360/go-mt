@@ -48,11 +48,21 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	if !mbConfig.Enabled {
 		return nil
 	}
-	mb := &mobilink{}
+	mb := &mobilink{
+		conf: mbConfig,
+	}
 	mb.initPrevSubscriptionsCache()
 	mb.initMetrics()
-
+	if mbConfig.Requests == "" {
+		log.Fatal("empty queue name requests")
+	}
+	if mbConfig.SMSRequests == "" {
+		log.Fatal("empty queue name sms requests")
+	}
 	if mbConfig.NewSubscription.Enabled {
+		if mbConfig.NewSubscription.Name == "" {
+			log.Fatal("empty queue name new subscription")
+		}
 		mb.NewConsumer = amqp.NewConsumer(
 			consumerConfig,
 			mbConfig.NewSubscription.Name,
@@ -71,6 +81,9 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.MO.Enabled {
+		if mbConfig.NewSubscription.Name == "" {
+			log.Fatal("empty queue name mo")
+		}
 		mb.MOConsumer = amqp.NewConsumer(
 			consumerConfig,
 			mbConfig.MO.Name,
@@ -89,6 +102,9 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.Responses.Enabled {
+		if mbConfig.NewSubscription.Name == "" {
+			log.Fatal("empty queue name responses")
+		}
 		mb.ResponsesConsumer = amqp.NewConsumer(
 			consumerConfig,
 			mbConfig.Responses.Name,
@@ -107,6 +123,9 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.SMSResponses.Enabled {
+		if mbConfig.NewSubscription.Name == "" {
+			log.Fatal("empty queue name sms responses")
+		}
 		mb.SMSResponsesConsumer = amqp.NewConsumer(
 			consumerConfig,
 			mbConfig.SMSResponses.Name,
@@ -128,7 +147,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	if mbConfig.Retries.Enabled {
 		go func() {
 		retries:
-			for range time.Tick(time.Second) {
+			for range time.Tick(time.Duration(mbConfig.Retries.Period) * time.Second) {
 				for _, queue := range mbConfig.Retries.CheckQueuesFree {
 					queueSize, err := svc.notifier.GetQueueSize(queue)
 					if err != nil {
@@ -175,7 +194,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 
-		log.WithField("body", string(msg.Body)).Debug("start process")
+		log.WithField("body", string(msg.Body)).Debug("new subscription")
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			mb.m.Dropped.Inc()
 
@@ -212,7 +231,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			log.WithFields(log.Fields{
 				"tid":   r.Tid,
 				"error": err.Error(),
-			}).Error("sent mo")
+			}).Error("send to mo")
 			msg.Nack(false, true)
 			continue
 		}
@@ -252,7 +271,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		var r rec.Record
 		var err error
 
-		log.WithField("body", string(msg.Body)).Debug("start process")
+		log.WithField("body", string(msg.Body)).Debug("mo")
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			mb.m.Dropped.Inc()
 
@@ -274,7 +293,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 				log.WithFields(log.Fields{
 					"tid":   r.Tid,
 					"error": err.Error(),
-				}).Error("sent charge")
+				}).Error("send to charge")
 				msg.Nack(false, true)
 				continue
 			}

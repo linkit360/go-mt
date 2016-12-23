@@ -112,7 +112,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 	if yConf.Retries.Enabled {
 		go func() {
 		retries:
-			for range time.Tick(time.Second) {
+			for range time.Tick(time.Duration(yConf.Retries.Period) * time.Second) {
 				for _, queue := range yConf.Retries.CheckQueuesFree {
 					queueSize, err := svc.notifier.GetQueueSize(queue)
 					if err != nil {
