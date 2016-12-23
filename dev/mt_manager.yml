@@ -12,12 +12,12 @@ service:
     transactions_log: transactions_log
 
   mobilink:
-    enabled: true
-    name: mobilink
+    enabled: false
+    operator_name: mobilink
     operator_code: 41001
     retries:
       enabled: true
-      fetch_count: 2500
+      fetch_limit: 2500
       check_queues_free:
       - "mobilink_requests"
       - "mt_manager"
@@ -48,22 +48,34 @@ service:
     sms_requests: mobilink_requests
 
 
-#    yondu:
-#      name: yondu
-#      enabled: false
-#      retries:
-#        enabled: false
-#        queue_size: 1500
-#        from_db_count: 1500
-#      mo:
-#        prefetch_count: 10
-#        threads_count: 10
-#      responses:
-#        prefetch_count: 10
-#        threads_count: 10
-#      sms_responses:
-#        prefetch_count: 10
-#        threads_count: 10
+    yondu:
+      enabled: true
+      operator_name: yondu
+      operator_code: 51500
+      periodic:
+        enabled:  false
+        fetch_limit: 10
+      retries:
+        enabled: false
+        period: 500
+        fetch_limit:
+        check_queues_free:
+        - "mobilink_requests"
+        - "mt_manager"
+        queue_free_size: 2500
+      sent_consent: yondu_send_consent
+      mt: yondu_mt
+      charge: yondu_charge
+      new:
+        name: yondu_mo
+        enabled: true
+        prefetch_count: 10
+        threads_count: 10
+      callback:
+        name: yondu_callback
+        prefetch_count: 10
+        enabled: true
+        threads_count: 10
 
 db:
   conn_ttl: -1

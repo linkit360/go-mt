@@ -81,7 +81,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.MO.Enabled {
-		if mbConfig.NewSubscription.Name == "" {
+		if mbConfig.MO.Name == "" {
 			log.Fatal("empty queue name mo")
 		}
 		mb.MOConsumer = amqp.NewConsumer(
@@ -102,7 +102,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.Responses.Enabled {
-		if mbConfig.NewSubscription.Name == "" {
+		if mbConfig.Responses.Name == "" {
 			log.Fatal("empty queue name responses")
 		}
 		mb.ResponsesConsumer = amqp.NewConsumer(
@@ -123,7 +123,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		)
 	}
 	if mbConfig.SMSResponses.Enabled {
-		if mbConfig.NewSubscription.Name == "" {
+		if mbConfig.SMSResponses.Name == "" {
 			log.Fatal("empty queue name sms responses")
 		}
 		mb.SMSResponsesConsumer = amqp.NewConsumer(
@@ -172,10 +172,11 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 					"operator": mbConfig.OperatorName,
 					"waitFor":  mbConfig.Retries.QueueFreeSize,
 				}).Debug("achieve free queues size")
-				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchCount, mb.publishToTelcoAPI)
+				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
 			}
 		}()
-
+	} else {
+		log.Debug("retries disabled")
 	}
 	return mb
 }

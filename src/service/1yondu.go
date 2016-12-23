@@ -41,10 +41,10 @@ type YonduConfig struct {
 	OperatorCode    int64                           `yaml:"operator_code" default:"51500"`
 	Periodic        PeriodicConfig                  `yaml:"periodic" `
 	Retries         RetriesConfig                   `yaml:"retries"`
-	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	SentConsent     string                          `yaml:"sent_consent"`
 	MT              string                          `yaml:"mt"`
 	Charge          string                          `yaml:"charge"`
+	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	CallBack        queue_config.ConsumeQueueConfig `yaml:"callBack"`
 }
 
@@ -63,6 +63,9 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 	y.initPrevSubscriptionsCache()
 
 	if yConf.NewSubscription.Enabled {
+		if yConf.NewSubscription.Name == "" {
+			log.Fatal("empty queue name new subscriptions")
+		}
 		y.MOConsumer = amqp.NewConsumer(
 			consumerConfig,
 			yConf.NewSubscription.Name,
@@ -79,9 +82,14 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 			yConf.NewSubscription.Name,
 			yConf.NewSubscription.Name,
 		)
+	} else {
+		log.Debug("new subscription disabled")
 	}
 
 	if yConf.CallBack.Enabled {
+		if yConf.CallBack.Name == "" {
+			log.Fatal("empty queue name callback")
+		}
 		y.CallBackConsumer = amqp.NewConsumer(
 			consumerConfig,
 			yConf.CallBack.Name,
@@ -98,16 +106,20 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 			yConf.CallBack.Name,
 			yConf.CallBack.Name,
 		)
+	} else {
+		log.Debug("callbacks disabled")
 	}
 
-	go func() {
-		for {
-			time.Sleep(time.Second)
-			if yConf.Periodic.Enabled {
+	if yConf.Periodic.Enabled {
+		go func() {
+			for {
+				time.Sleep(time.Second)
 				y.processPeriodic()
 			}
-		}
-	}()
+		}()
+	} else {
+		log.Debug("periodic disabled")
+	}
 
 	if yConf.Retries.Enabled {
 		go func() {
@@ -137,7 +149,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 					"operator": yConf.OperatorName,
 					"waitFor":  yConf.Retries.QueueFreeSize,
 				}).Debug("achieve free queues size")
-				processRetries(yConf.OperatorCode, yConf.Retries.FetchCount, y.publishCharge)
+				processRetries(yConf.OperatorCode, yConf.Retries.FetchLimit, y.publishCharge)
 			}
 		}()
 
