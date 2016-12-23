@@ -45,7 +45,7 @@ type YonduConfig struct {
 	MT              string                          `yaml:"mt"`
 	Charge          string                          `yaml:"charge"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
-	CallBack        queue_config.ConsumeQueueConfig `yaml:"callBack"`
+	CallBack        queue_config.ConsumeQueueConfig `yaml:"callback"`
 }
 
 type PeriodicConfig struct {
@@ -60,6 +60,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 	y := &yondu{
 		conf: yConf,
 	}
+	y.initMetrics()
 	y.initPrevSubscriptionsCache()
 
 	if yConf.NewSubscription.Enabled {
@@ -387,12 +388,13 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
 		KeepDays:                 svc.KeepDays,
-		Price:                    100 * int(svc.Price),
+		Price:                    int(svc.Price),
 		OperatorToken:            req.Params.TransID,
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedToHours:   svc.PeriodicAllowedFrom,
 		PeriodicAllowedFromHours: svc.PeriodicAllowedTo,
+		SMSText:                  "Unfortunately, you cannot access our service",
 	}
 	return r, nil
 }
@@ -533,7 +535,7 @@ type YonduMetrics struct {
 	ProcessPeriodicsDuration prometheus.Summary
 }
 
-func (y *yondu) initYonduMetrics() {
+func (y *yondu) initMetrics() {
 	telcoName := "yondu"
 	ym := &YonduMetrics{
 		MODropped:                m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
@@ -722,7 +724,7 @@ func (y *yondu) getRecByTransId(transId string) rec.Record {
 			"transid": transId,
 		}).Debug("record not in cache")
 		r, err := rec.GetPeriodicSubscriptionByToken(transId)
-		if err != nil {
+		if err != nil || r.Tid == "" {
 			log.WithFields(log.Fields{
 				"transid": transId,
 				"error":   err.Error(),

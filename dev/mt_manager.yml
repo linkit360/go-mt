@@ -9,7 +9,7 @@ service:
   queues:
     pixels: pixels
     db_actions: mt_manager
-    transactions_log: transactions_log
+    transaction_log: transaction_log
 
   mobilink:
     enabled: false
@@ -48,34 +48,34 @@ service:
     sms_requests: mobilink_requests
 
 
-    yondu:
+  yondu:
+    enabled: true
+    operator_name: yondu
+    operator_code: 51500
+    periodic:
+      enabled:  true
+      fetch_limit: 10
+    retries:
+      enabled: false
+      period: 500
+      fetch_limit:
+      check_queues_free:
+      - "mobilink_requests"
+      - "mt_manager"
+      queue_free_size: 2500
+    sent_consent: yondu_consent
+    mt: yondu_mt
+    charge: yondu_charge
+    new:
+      name: yondu_mo
       enabled: true
-      operator_name: yondu
-      operator_code: 51500
-      periodic:
-        enabled:  false
-        fetch_limit: 10
-      retries:
-        enabled: false
-        period: 500
-        fetch_limit:
-        check_queues_free:
-        - "mobilink_requests"
-        - "mt_manager"
-        queue_free_size: 2500
-      sent_consent: yondu_send_consent
-      mt: yondu_mt
-      charge: yondu_charge
-      new:
-        name: yondu_mo
-        enabled: true
-        prefetch_count: 10
-        threads_count: 10
-      callback:
-        name: yondu_callback
-        prefetch_count: 10
-        enabled: true
-        threads_count: 10
+      prefetch_count: 10
+      threads_count: 10
+    callback:
+      name: yondu_callback
+      prefetch_count: 10
+      enabled: true
+      threads_count: 10
 
 db:
   conn_ttl: -1
