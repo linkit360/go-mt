@@ -18,11 +18,12 @@ var (
 	PendingRetriesCount       prometheus.Gauge
 	SetPendingStatusErrors    m.Gauge
 
-	NotifyErrors m.Gauge
-	Errors       m.Gauge
-	PostPaid     m.Gauge
-	Rejected     m.Gauge
-	BlackListed  m.Gauge
+	DelayHoursArentPassed m.Gauge
+	NotifyErrors          m.Gauge
+	Errors                m.Gauge
+	PostPaid              m.Gauge
+	Rejected              m.Gauge
+	BlackListed           m.Gauge
 )
 
 func newGaugeNotPaid(name, help string) m.Gauge {
@@ -42,6 +43,7 @@ func initMetrics(appName string) {
 	Rejected = newGaugeNotPaid(appName+"_rejected", "Rejected count")
 	BlackListed = newGaugeNotPaid(appName+"_blacklisted", "Blacklisted count")
 	SetPendingStatusErrors = m.NewGauge(appName, "", "set_pending_status_errors", "set_pending status")
+	DelayHoursArentPassed = m.NewGauge(appName, "", "delay_hours_arent_passed", "delay_hours_arent_passed")
 
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -51,6 +53,7 @@ func initMetrics(appName string) {
 			Rejected.Update()
 			BlackListed.Update()
 			SetPendingStatusErrors.Update()
+			DelayHoursArentPassed.Update()
 		}
 	}()
 

@@ -18,7 +18,7 @@ type EventNotifyTarifficate struct {
 // get records from db
 // check them
 // and send to telco
-func processRetries(operatorCode int64, retryCount int, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
+func ProcessRetries(operatorCode int64, retryCount int, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
 	begin := time.Now()
 	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
 	if err != nil {
@@ -71,13 +71,26 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 		"msisdn":         record.Msisdn,
 		"attempts_count": record.AttemptsCount,
 	})
-	logCtx.Debug("start processsing")
 
+	sincePreviousAttempt := time.Now().Sub(record.LastPayAttemptAt).Hours()
+	delayHours := (time.Duration(record.DelayHours) * time.Hour).Hours()
+	if sincePreviousAttempt < delayHours {
+		DelayHoursArentPassed.Inc()
+
+		logCtx.WithFields(log.Fields{
+			"prev":   record.LastPayAttemptAt,
+			"now":    time.Now().UTC(),
+			"passed": sincePreviousAttempt,
+			"delay":  delayHours,
+		}).Debug("delay hours were not passed")
+		return nil
+	}
+
+	logCtx.Debug("start processsing")
 	if err := checkBlackListedPostpaid(&record); err != nil {
 		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
 		return err
 	}
-
 	begin := time.Now()
 	if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
 		Errors.Inc()

@@ -150,7 +150,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 					"operator": yConf.OperatorName,
 					"waitFor":  yConf.Retries.QueueFreeSize,
 				}).Debug("achieve free queues size")
-				processRetries(yConf.OperatorCode, yConf.Retries.FetchLimit, y.publishCharge)
+				ProcessRetries(yConf.OperatorCode, yConf.Retries.FetchLimit, y.publishCharge)
 			}
 		}()
 
