@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -26,13 +27,13 @@ type MTService struct {
 type MTServiceConfig struct {
 	LevelDBFilePath string         `yaml:"leveldb_file"`
 	Queues          QueuesConfig   `yaml:"queues"`
-	Yondu           YonduConfig    `yaml:"yondu"`
-	Mobilink        MobilinkConfig `yaml:"mobilink"`
+	Yondu           YonduConfig    `yaml:"yondu,omitempty"`
+	Mobilink        MobilinkConfig `yaml:"mobilink,omitempty"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
 	DBActions      string `default:"mt_manager" yaml:"db_actions"`
-	TransactionLog string `default:"transactions_log" yaml:"transactions_log"`
+	TransactionLog string `default:"transaction_log" yaml:"transaction_log"`
 }
 
 type RetriesConfig struct {
@@ -54,12 +55,12 @@ func Init(
 ) {
 	appName = name
 	log.SetLevel(log.DebugLevel)
+	svc.notifier = amqp.NewNotifier(publisherConf)
 	rec.Init(dbConf)
 
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
-
 	svc.conf = serviceConf
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
 	initMetrics(appName)
@@ -72,11 +73,9 @@ func Init(
 
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig)
-
-	svc.notifier = amqp.NewNotifier(publisherConf)
 }
 
 func SaveState() {
-	log.WithField("savestate", 1).Info("save leveldb state")
+	log.WithField("pid", os.Getpid()).Info("save leveldb state")
 	svc.ldb.Close()
 }

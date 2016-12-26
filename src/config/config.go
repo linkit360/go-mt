@@ -56,7 +56,10 @@ func LoadConfig() AppConfig {
 	appConfig.Publisher.Conn.Host = envString("RBMQ_HOST", appConfig.Publisher.Conn.Host)
 	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)
 
-	log.WithField("config", fmt.Sprintf("%#v", appConfig)).Info("Config loaded")
+	log.WithFields(log.Fields{
+		"config": fmt.Sprintf("%#v", appConfig),
+		"pid":    os.Getpid(),
+	}).Info("Config loaded")
 	return appConfig
 }
 

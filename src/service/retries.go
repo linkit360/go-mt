@@ -29,7 +29,6 @@ func processRetries(operatorCode int64, retryCount int, notifyFnSendChargeReques
 		}).Error("get retries")
 		return
 	}
-	SinceRetryStartProcessed.Set(.0)
 
 	log.WithFields(log.Fields{
 		"code":      operatorCode,

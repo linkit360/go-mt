@@ -8,6 +8,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	cache "github.com/patrickmn/go-cache"
+	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
 	"github.com/vostrok/utils/amqp"
@@ -143,41 +144,46 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 			mbConfig.SMSResponses.Name,
 		)
 	}
+	log.WithFields(log.Fields{
+		"seconds": mbConfig.Retries.Period,
+	}).Debug("init retries")
 
-	if mbConfig.Retries.Enabled {
-		go func() {
-		retries:
-			for range time.Tick(time.Duration(mbConfig.Retries.Period) * time.Second) {
-				for _, queue := range mbConfig.Retries.CheckQueuesFree {
-					queueSize, err := svc.notifier.GetQueueSize(queue)
-					if err != nil {
-						log.WithFields(log.Fields{
-							"operator": mbConfig.OperatorName,
-							"queue":    queue,
-							"error":    err.Error(),
-						}).Error("cannot get queue size")
-						continue retries
-					}
+	go func() {
+	retries:
+		for range time.Tick(time.Duration(mbConfig.Retries.Period) * time.Second) {
+			for _, queue := range mbConfig.Retries.CheckQueuesFree {
+				queueSize, err := svc.notifier.GetQueueSize(queue)
+				if err != nil {
 					log.WithFields(log.Fields{
-						"operator":  mbConfig.OperatorName,
-						"queue":     queue,
-						"queueSize": queueSize,
-						"waitFor":   mbConfig.Retries.QueueFreeSize,
-					}).Debug("")
-					if queueSize > mbConfig.Retries.QueueFreeSize {
-						continue retries
-					}
+						"operator": mbConfig.OperatorName,
+						"queue":    queue,
+						"error":    err.Error(),
+					}).Error("cannot get queue size")
+					continue retries
 				}
 				log.WithFields(log.Fields{
-					"operator": mbConfig.OperatorName,
-					"waitFor":  mbConfig.Retries.QueueFreeSize,
-				}).Debug("achieve free queues size")
-				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
+					"operator":  mbConfig.OperatorName,
+					"queue":     queue,
+					"queueSize": queueSize,
+					"waitFor":   mbConfig.Retries.QueueFreeSize,
+				}).Debug("")
+				if queueSize > mbConfig.Retries.QueueFreeSize {
+					continue retries
+				}
 			}
-		}()
-	} else {
-		log.Debug("retries disabled")
-	}
+			log.WithFields(log.Fields{
+				"operator": mbConfig.OperatorName,
+				"waitFor":  mbConfig.Retries.QueueFreeSize,
+			}).Debug("achieve free queues size")
+			if mbConfig.Retries.Enabled {
+				mb.m.SinceRetryStartProcessed.Set(.0)
+				processRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
+			} else {
+				log.Debug("retries disabled")
+			}
+		}
+	}()
+
 	return mb
 }
 
@@ -347,32 +353,36 @@ func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
 // ============================================================
 // metrics
 type MobilinkMetrics struct {
-	Dropped            m.Gauge
-	Empty              m.Gauge
-	AddToDBErrors      m.Gauge
-	AddToDbSuccess     m.Gauge
-	NotifyErrors       m.Gauge
-	ResponseDropped    m.Gauge
-	ResponseErrors     m.Gauge
-	ResponseSuccess    m.Gauge
-	ResponseSMSDropped m.Gauge
-	ResponseSMSErrors  m.Gauge
-	ResponseSMSSuccess m.Gauge
+	Dropped                  m.Gauge
+	Empty                    m.Gauge
+	AddToDBErrors            m.Gauge
+	AddToDbSuccess           m.Gauge
+	NotifyErrors             m.Gauge
+	ResponseDropped          m.Gauge
+	ResponseErrors           m.Gauge
+	ResponseSuccess          m.Gauge
+	ResponseSMSDropped       m.Gauge
+	ResponseSMSErrors        m.Gauge
+	ResponseSMSSuccess       m.Gauge
+	SinceRetryStartProcessed prometheus.Gauge
+	SinceLastSuccessPay      prometheus.Gauge
 }
 
 func (mb *mobilink) initMetrics() {
 	mbm := &MobilinkMetrics{
-		Dropped:            m.NewGauge(appName, mb.conf.OperatorName, "dropped", "mobilink dropped"),
-		Empty:              m.NewGauge(appName, mb.conf.OperatorName, "empty", "mobilink queue empty"),
-		AddToDBErrors:      m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
-		AddToDbSuccess:     m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
-		NotifyErrors:       m.NewGauge(appName, mb.conf.OperatorName, "notify_errors", "notify errors"),
-		ResponseDropped:    m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
-		ResponseErrors:     m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
-		ResponseSuccess:    m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
-		ResponseSMSDropped: m.NewGauge(appName, mb.conf.OperatorName, "response_sms_dropped", "sms response dropped"),
-		ResponseSMSErrors:  m.NewGauge(appName, mb.conf.OperatorName, "response_sms_errors", "errors"),
-		ResponseSMSSuccess: m.NewGauge(appName, mb.conf.OperatorName, "response_sms_success", "success"),
+		Dropped:                  m.NewGauge(appName, mb.conf.OperatorName, "dropped", "mobilink dropped"),
+		Empty:                    m.NewGauge(appName, mb.conf.OperatorName, "empty", "mobilink queue empty"),
+		AddToDBErrors:            m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
+		AddToDbSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
+		NotifyErrors:             m.NewGauge(appName, mb.conf.OperatorName, "notify_errors", "notify errors"),
+		ResponseDropped:          m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
+		ResponseErrors:           m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
+		ResponseSuccess:          m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
+		ResponseSMSDropped:       m.NewGauge(appName, mb.conf.OperatorName, "response_sms_dropped", "sms response dropped"),
+		ResponseSMSErrors:        m.NewGauge(appName, mb.conf.OperatorName, "response_sms_errors", "errors"),
+		ResponseSMSSuccess:       m.NewGauge(appName, mb.conf.OperatorName, "response_sms_success", "success"),
+		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
+		SinceLastSuccessPay:      m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_success_pay_seconds", "seconds since success pay"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -387,6 +397,12 @@ func (mb *mobilink) initMetrics() {
 			mbm.ResponseSMSDropped.Update()
 			mbm.ResponseSMSErrors.Update()
 			mbm.ResponseSMSSuccess.Update()
+		}
+	}()
+	go func() {
+		for range time.Tick(time.Second) {
+			mbm.SinceRetryStartProcessed.Inc()
+			mbm.SinceLastSuccessPay.Inc()
 		}
 	}()
 	mb.m = mbm
@@ -460,6 +476,9 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 func (mb *mobilink) handleResponse(r rec.Record) error {
 	if err := processResponse(&r); err != nil {
 		return err
+	}
+	if r.SubscriptionStatus == "paid" {
+		mb.m.SinceLastSuccessPay.Set(.0)
 	}
 	logCtx := log.WithFields(log.Fields{
 		"tid":    r.Tid,
