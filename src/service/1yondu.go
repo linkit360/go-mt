@@ -38,7 +38,7 @@ type yondu struct {
 type YonduConfig struct {
 	Enabled         bool                            `yaml:"enabled" default:"false"`
 	OperatorName    string                          `yaml:"operator_name" default:"yondu"`
-	OperatorCode    int64                           `yaml:"operator_code" default:"51500"`
+	OperatorCode    int64                           `yaml:"operator_code" default:"51501"`
 	Periodic        PeriodicConfig                  `yaml:"periodic" `
 	Retries         RetriesConfig                   `yaml:"retries"`
 	SentConsent     string                          `yaml:"sent_consent"`
@@ -381,7 +381,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		Tid:                      rec.GenerateTID(),
 		SubscriptionStatus:       "",
 		CountryCode:              515,
-		OperatorCode:             51500,
+		OperatorCode:             y.conf.OperatorCode,
 		Publisher:                publisher,
 		Pixel:                    "",
 		CampaignId:               campaign.Id,
