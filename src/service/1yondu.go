@@ -298,6 +298,7 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
 		}
 		if r.Result == "" {
+			y.setRecCache(r)
 			if err := y.publishSentConsent(r); err != nil {
 				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 			}
@@ -436,6 +437,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 		if strings.Contains(e.EventData.Params.StatusCode, "0") {
 			r.Paid = true
+			y.m.SinceLastSuccessPay.Set(.0)
 		}
 		if err = processResponse(&r); err != nil {
 			msg.Nack(false, true)
@@ -531,6 +533,7 @@ type YonduMetrics struct {
 	CallBackTransIdError     m.Gauge
 	AddToDBErrors            m.Gauge
 	AddToDbSuccess           m.Gauge
+	SinceLastSuccessPay      prometheus.Gauge
 	GetPeriodicsDuration     prometheus.Summary
 	ProcessPeriodicsDuration prometheus.Summary
 }
@@ -548,6 +551,7 @@ func (y *yondu) initMetrics() {
 		CallBackTransIdError:     m.NewGauge(appName, telcoName, "callback_transid_error", "yondu callback cannot get record by transid"),
 		AddToDBErrors:            m.NewGauge(appName, telcoName, "add_to_db_errors", "subscription add to db errors"),
 		AddToDbSuccess:           m.NewGauge(appName, telcoName, "add_to_db_success", "subscription add to db success"),
+		SinceLastSuccessPay:      m.PrometheusGauge(appName, y.conf.OperatorName, "since_last_success_pay_seconds", "seconds since success pay"),
 		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
 		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
 	}
@@ -563,6 +567,12 @@ func (y *yondu) initMetrics() {
 			ym.CallBackTransIdError.Update()
 			ym.AddToDBErrors.Update()
 			ym.AddToDbSuccess.Update()
+		}
+	}()
+
+	go func() {
+		for range time.Tick(time.Second) {
+			ym.SinceLastSuccessPay.Inc()
 		}
 	}()
 
@@ -661,7 +671,8 @@ const ldbTransIdRecordKey = "yondu_transid_"
 // leveldb cache for pending periodic subscription:
 // get ids and do not initiate new charge if id is in this list
 func (y *yondu) setPendingPeriodicSubscriptionCache(r rec.Record) {
-	err := svc.ldb.Put([]byte(ldbPeriodicKey+strconv.FormatInt(r.SubscriptionId, 10)), []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
+	key := []byte(ldbPeriodicKey + strconv.FormatInt(r.SubscriptionId, 10))
+	err := svc.ldb.Put(key, []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
@@ -673,10 +684,12 @@ func (y *yondu) setPendingPeriodicSubscriptionCache(r rec.Record) {
 	log.WithFields(log.Fields{
 		"transid": r.OperatorToken,
 		"tid":     r.Tid,
+		"key":     string(key),
 	}).Debug("set record cache")
 }
 func (y *yondu) deletePendingPeriodicSubscriptionCache(r rec.Record) {
-	err := svc.ldb.Delete([]byte(ldbPeriodicKey+strconv.FormatInt(r.SubscriptionId, 10)), nil)
+	key := []byte(ldbPeriodicKey + strconv.FormatInt(r.SubscriptionId, 10))
+	err := svc.ldb.Delete(key, nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
@@ -688,6 +701,7 @@ func (y *yondu) deletePendingPeriodicSubscriptionCache(r rec.Record) {
 	log.WithFields(log.Fields{
 		"subscriptionId": r.SubscriptionId,
 		"tid":            r.Tid,
+		"key":            string(key),
 	}).Debug("deleted record cache")
 }
 func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
@@ -718,17 +732,22 @@ func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
 // if no record found in leveldb, then we search in database
 func (y *yondu) getRecByTransId(transId string) rec.Record {
 	var r rec.Record
-	recordJson, err := svc.ldb.Get([]byte(ldbTransIdRecordKey+transId), nil)
+	key := []byte(ldbTransIdRecordKey + transId)
+	recordJson, err := svc.ldb.Get(key, nil)
 	if err == leveldb.ErrNotFound {
 		log.WithFields(log.Fields{
 			"transid": transId,
 		}).Debug("record not in cache")
 		r, err := rec.GetPeriodicSubscriptionByToken(transId)
 		if err != nil || r.Tid == "" {
-			log.WithFields(log.Fields{
+			fields := log.Fields{
 				"transid": transId,
-				"error":   err.Error(),
-			}).Error("cannot find record by transId")
+				"key":     string(key),
+			}
+			if err != nil {
+				fields["error"] = err.Error()
+			}
+			log.WithFields(fields).Error("cannot find record by transId")
 			return rec.Record{}
 		}
 		log.WithFields(log.Fields{
@@ -742,8 +761,9 @@ func (y *yondu) getRecByTransId(transId string) rec.Record {
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": transId,
+			"key":     string(key),
 			"error":   err.Error(),
-		}).Error("get record cache")
+		}).Error("cannot get record cache")
 		return rec.Record{}
 	}
 	if err := json.Unmarshal(recordJson, &r); err != nil {
@@ -758,37 +778,56 @@ func (y *yondu) getRecByTransId(transId string) rec.Record {
 		"tid":     r.Tid,
 		"msisdn":  r.Msisdn,
 		"transid": transId,
+		"key":     string(key),
 	}).Debug("got record from ldb")
 	return r
 }
+
 func (y *yondu) setRecCache(r rec.Record) {
-	err := svc.ldb.Put([]byte(ldbTransIdRecordKey+r.OperatorToken), []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
+	recStr, err := json.Marshal(r)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
 			"tid":     r.Tid,
 			"msisdn":  r.Msisdn,
 			"error":   err.Error(),
-		}).Fatal("set record cache")
+		}).Fatal("cannot marshal")
+	}
+	key := []byte(ldbTransIdRecordKey + r.OperatorToken)
+	err = svc.ldb.Put(key, recStr, nil)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"transid": r.OperatorToken,
+			"tid":     r.Tid,
+			"msisdn":  r.Msisdn,
+			"key":     string(key),
+			"error":   err.Error(),
+		}).Fatal("cannot set record cache")
 	}
 	log.WithFields(log.Fields{
 		"transid": r.OperatorToken,
 		"tid":     r.Tid,
+		"token":   r.OperatorToken,
+		"key":     string(key),
 	}).Debug("set record cache")
 }
+
 func (y *yondu) deleteRecCache(r rec.Record) {
-	err := svc.ldb.Delete([]byte(ldbTransIdRecordKey+r.OperatorToken), nil)
+	key := []byte(ldbTransIdRecordKey + r.OperatorToken)
+	err := svc.ldb.Delete(key, nil)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
 			"tid":     r.Tid,
 			"msisdn":  r.Msisdn,
 			"error":   err.Error(),
+			"key":     string(key),
 		}).Fatal("cannot delete record cache")
 	}
 	log.WithFields(log.Fields{
 		"transid": r.OperatorToken,
 		"tid":     r.Tid,
 		"msisdn":  r.Msisdn,
+		"key":     string(key),
 	}).Debug("deleted record cache")
 }
