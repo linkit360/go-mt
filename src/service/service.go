@@ -56,6 +56,8 @@ func Init(
 	appName = name
 	log.SetLevel(log.DebugLevel)
 	svc.notifier = amqp.NewNotifier(publisherConf)
+	svc.notifier.RestoreState()
+
 	rec.Init(dbConf)
 
 	if err := inmem_client.Init(inMemConfig); err != nil {
@@ -78,4 +80,5 @@ func Init(
 func SaveState() {
 	log.WithField("pid", os.Getpid()).Info("save leveldb state")
 	svc.ldb.Close()
+	svc.notifier.SaveState()
 }

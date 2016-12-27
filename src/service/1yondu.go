@@ -49,7 +49,7 @@ type YonduConfig struct {
 }
 
 type PeriodicConfig struct {
-	Enabled    bool `yaml:"periodic" default:"false"`
+	Enabled    bool `yaml:"enabled" default:"false"`
 	FetchLimit int  `yaml:"fetch_limit" default:"500"`
 }
 

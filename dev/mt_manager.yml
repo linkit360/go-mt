@@ -25,6 +25,7 @@ service:
       - "mt_manager"
     periodic:
       enabled: false
+      fetch_limit: 1
     new:
       name: mobilink_new_subscriptions
       enabled: true
