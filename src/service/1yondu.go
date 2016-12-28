@@ -265,11 +265,7 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		err = checkMO(&r, y.getPrevSubscriptionCache, y.setPrevSubscriptionCache)
-		if err != nil {
-			msg.Nack(false, true)
-			continue
-		}
+		// in check MO func we have to have subscription id
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
 			y.m.AddToDBErrors.Inc()
 			msg.Nack(false, true)
@@ -277,6 +273,12 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 		} else {
 			y.m.AddToDbSuccess.Inc()
 		}
+		err = checkMO(&r, y.getPrevSubscriptionCache, y.setPrevSubscriptionCache)
+		if err != nil {
+			msg.Nack(false, true)
+			continue
+		}
+
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
 			Tid:              r.Tid,
 			Msisdn:           r.Msisdn,
@@ -481,7 +483,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 				"queue": y.conf.CallBack.Name,
 				"event": e.EventName,
 				"tid":   r.Tid,
-			}).Info("success (sent to transaction log)")
+			}).Info("sent to transaction log")
 		}
 
 	ack:

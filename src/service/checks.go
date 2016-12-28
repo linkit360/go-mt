@@ -14,10 +14,9 @@ import (
 func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bool, setPreviousSubscriptionFn func(r rec.Record)) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid":            record.Tid,
-		"msisdn":         record.Msisdn,
 		"attempts_count": record.AttemptsCount,
 	})
-	logCtx.Debug("start processsing")
+	logCtx.Debug("mo")
 
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
@@ -57,7 +56,6 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bo
 func checkBlackListedPostpaid(record *rec.Record) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid":            record.Tid,
-		"msisdn":         record.Msisdn,
 		"attempts_count": record.AttemptsCount,
 	})
 
@@ -125,8 +123,7 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 
 func processResponse(r *rec.Record) error {
 	logCtx := log.WithFields(log.Fields{
-		"tid":    r.Tid,
-		"msisdn": r.Msisdn,
+		"tid": r.Tid,
 	})
 	logCtx.Info("got response")
 

@@ -163,7 +163,6 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 					continue retries
 				}
 				log.WithFields(log.Fields{
-					"operator":  mbConfig.OperatorName,
 					"queue":     queue,
 					"queueSize": queueSize,
 					"waitFor":   mbConfig.Retries.QueueFreeSize,
@@ -172,10 +171,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 					continue retries
 				}
 			}
-			log.WithFields(log.Fields{
-				"operator": mbConfig.OperatorName,
-				"waitFor":  mbConfig.Retries.QueueFreeSize,
-			}).Debug("achieve free queues size")
+			log.WithFields(log.Fields{}).Debug("achieve free queues")
 			if mbConfig.Retries.Enabled {
 				mb.m.SinceRetryStartProcessed.Set(.0)
 				ProcessRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
@@ -210,7 +206,8 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 				"error": err.Error(),
 				"msg":   "dropped",
 				"body":  string(msg.Body),
-			}).Error("consume new subscription")
+				"q":     mb.conf.NewSubscription.Name,
+			}).Error("failed")
 			goto ack
 		}
 
@@ -221,10 +218,11 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			mb.m.Empty.Inc()
 
 			log.WithFields(log.Fields{
-				"error":        "Empty message",
-				"msg":          "dropped",
-				"subscription": string(msg.Body),
-			}).Error("consume new subscritpion")
+				"error": "Empty message",
+				"msg":   "dropped",
+				"body":  string(msg.Body),
+				"q":     mb.conf.NewSubscription.Name,
+			}).Error("failed")
 			goto ack
 		}
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
@@ -287,7 +285,8 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 				"error": err.Error(),
 				"msg":   "dropped",
 				"body":  string(msg.Body),
-			}).Error("consume mo")
+				"q":     mb.conf.MO.Name,
+			}).Error("failed")
 			goto ack
 		}
 
@@ -442,10 +441,6 @@ func (mb *mobilink) publishToTelcoAPISMS(r rec.Record) (err error) {
 // responses
 func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
-		log.WithFields(log.Fields{
-			"body": string(msg.Body),
-		}).Debug("start process response")
-
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			mb.m.ResponseDropped.Inc()
@@ -454,7 +449,7 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 				"error":    err.Error(),
 				"msg":      "dropped",
 				"response": string(msg.Body),
-			}).Error("consume failed")
+			}).Error("failed")
 			goto ack
 		}
 		if err := mb.handleResponse(e.EventData); err != nil {
@@ -493,18 +488,10 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 			smsTranasction.Result = "sms"
 			if err := mb.smsSend(r, r.SMSText); err != nil {
 				Errors.Inc()
-
-				logCtx.WithFields(log.Fields{
-					"error": err.Error(),
-				}).Error("sms send")
 				return err
 			}
 			if err := writeTransaction(r); err != nil {
 				Errors.Inc()
-
-				logCtx.WithFields(log.Fields{
-					"error": err.Error(),
-				}).Error("failed to write sms transaction")
 				return err
 			}
 		} else {
@@ -515,9 +502,7 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 	// send everything, pixels module will decide to send pixel, or not to send
 	if r.Pixel != "" && r.AttemptsCount == 0 && r.SubscriptionStatus != "postpaid" {
 		if err := notifyPixel(r); err != nil {
-			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Error("failed to send pixel")
+			Errors.Inc()
 		}
 	} else {
 		logCtx.WithFields(log.Fields{
@@ -545,10 +530,6 @@ func (mb *mobilink) smsSend(record rec.Record, msg string) error {
 // sms responses
 func (mb *mobilink) processSMSResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
-		log.WithFields(log.Fields{
-			"body": string(msg.Body),
-		}).Debug("start process")
-
 		var e EventNotifyTarifficate
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			mb.m.ResponseSMSDropped.Inc()
@@ -557,7 +538,7 @@ func (mb *mobilink) processSMSResponses(deliveries <-chan amqp_driver.Delivery) 
 				"error":    err.Error(),
 				"msg":      "dropped",
 				"response": string(msg.Body),
-			}).Error("consume failed")
+			}).Error("failed")
 			goto ack
 		}
 

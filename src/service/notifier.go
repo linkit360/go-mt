@@ -40,9 +40,8 @@ func _notifyDBAction(eventName string, msg rec.Record) (err error) {
 				"data":  fmt.Sprintf("%#v", msg),
 				"queue": svc.conf.Queues.DBActions,
 				"event": eventName,
+				"error": fmt.Errorf(eventName+": %s", err.Error()),
 			}
-			fields["error"] = fmt.Errorf(eventName+": %s", err.Error())
-			fields["rec"] = fmt.Sprintf("%#v", msg)
 			log.WithFields(fields).Error("cannot send")
 		}
 	}()
@@ -88,6 +87,8 @@ func notifyPixel(r rec.Record) (err error) {
 			"queue": svc.conf.Queues.Pixels,
 		}
 		if err != nil {
+			NotifyErrors.Inc()
+
 			fields["errors"] = err.Error()
 			fields["pixel"] = fmt.Sprintf("%#v", msg)
 			log.WithFields(fields).Error("cannot enqueue")
