@@ -74,7 +74,7 @@ func process() {
 		count++
 		processRetry(v)
 	}
-	log.Info("paid: %v", paidCount)
+	log.Infof("paid: %d", paidCount)
 }
 
 func processRetry(v rec.Record) {
