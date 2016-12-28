@@ -68,7 +68,6 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 
 	logCtx := log.WithFields(log.Fields{
 		"tid":            record.Tid,
-		"msisdn":         record.Msisdn,
 		"attempts_count": record.AttemptsCount,
 	})
 
@@ -108,7 +107,7 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 		logCtx.WithField("error", err.Error()).Error("cannot send to queue")
 		return err
 	}
-	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator call")
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator")
 
 	return nil
 }

@@ -13,16 +13,13 @@ import (
 // chech functions for MO, retries, responses
 func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bool, setPreviousSubscriptionFn func(r rec.Record)) error {
 	logCtx := log.WithFields(log.Fields{
-		"tid":            record.Tid,
-		"attempts_count": record.AttemptsCount,
+		"tid": record.Tid,
 	})
 	logCtx.Debug("mo")
 
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
 	if record.PaidHours > 0 {
-		logCtx.WithField("paidHours", record.PaidHours).Debug("paid hours > 0")
-
 		hasPrevious := getPreviousSubscriptionFn(*record)
 		if hasPrevious {
 			Rejected.Inc()
@@ -125,7 +122,6 @@ func processResponse(r *rec.Record) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
-	logCtx.Info("got response")
 
 	if r.SubscriptionStatus == "postpaid" {
 		PostPaid.Inc()
@@ -166,7 +162,6 @@ func processResponse(r *rec.Record) error {
 				// sometimes duplicates found despite the check
 				return nil
 			}
-			logCtx.Info("new postpaid number added")
 		} else {
 			logCtx.Info("already in postpaid inmem")
 		}
@@ -199,7 +194,7 @@ func processResponse(r *rec.Record) error {
 		"paid":   r.Paid,
 		"result": r.Result,
 		"status": r.SubscriptionStatus,
-	}).Info("statuses")
+	}).Info("response")
 
 	if err := writeSubscriptionStatus(*r); err != nil {
 		Errors.Inc()
@@ -216,11 +211,6 @@ func processResponse(r *rec.Record) error {
 		}).Debug("mo")
 		if err := startRetry(*r); err != nil {
 			Errors.Inc()
-
-			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-				"retry": fmt.Sprintf("%#v", r),
-			}).Error("add to retries failed")
 			return err
 		}
 	}
@@ -230,15 +220,11 @@ func processResponse(r *rec.Record) error {
 
 		logCtx.WithFields(log.Fields{
 			"createdAt":      r.CreatedAt,
-			"KeepDays":       r.KeepDays,
-			"spentInRetries": now.Sub(r.CreatedAt).Hours(),
-			"KeepHours":      (time.Duration(24*r.KeepDays) * time.Hour).Hours(),
-		}).Debug("process retry")
+			"spentInRetries": int(now.Sub(r.CreatedAt).Hours()),
+		}).Debug("retry")
 
 		remove := false
-		if now.Sub(r.CreatedAt).Hours() >
-			(time.Duration(24*r.KeepDays) * time.Hour).Hours() {
-			logCtx.Info("remove retry: keep days expired")
+		if now.Sub(r.CreatedAt).Hours() > (time.Duration(24*r.KeepDays) * time.Hour).Hours() {
 			remove = true
 		}
 		if r.Result == "retry_paid" {

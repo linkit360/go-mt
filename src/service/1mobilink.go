@@ -198,7 +198,6 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 
-		log.WithField("body", string(msg.Body)).Debug("new subscription")
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			mb.m.Dropped.Inc()
 
@@ -277,7 +276,6 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		var r rec.Record
 		var err error
 
-		log.WithField("body", string(msg.Body)).Debug("mo")
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			mb.m.Dropped.Inc()
 
@@ -331,11 +329,6 @@ func (mb *mobilink) initPrevSubscriptionsCache() {
 func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
 	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
-	log.WithFields(log.Fields{
-		"tid":   r.Tid,
-		"key":   key,
-		"found": found,
-	}).Debug("get previous subscription cache")
 	return found
 }
 func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
@@ -504,10 +497,6 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 		if err := notifyPixel(r); err != nil {
 			Errors.Inc()
 		}
-	} else {
-		logCtx.WithFields(log.Fields{
-			"attemptsCount": r.AttemptsCount,
-		}).Debug("skip send pixel")
 	}
 
 	return nil
