@@ -32,6 +32,8 @@ func main() {
 	process()
 }
 
+var paidCount = 0
+
 func process() {
 	m.Init("script")
 	cfg := flag.String("config", "mt_manager.yml", "configuration yml file")
@@ -72,8 +74,9 @@ func process() {
 		count++
 		processRetry(v)
 	}
-
+	log.Info("paid: %v", paidCount)
 }
+
 func processRetry(v rec.Record) {
 
 	cmdOut := getRowResponse(v.Tid)
@@ -90,6 +93,7 @@ func processRetry(v rec.Record) {
 		}).Debug("paid!")
 
 		v.Paid = true
+		paidCount++
 	} else {
 		log.WithFields(log.Fields{
 			"tid": v.Tid,
