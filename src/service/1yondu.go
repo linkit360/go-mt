@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -243,11 +242,6 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
-		log.WithFields(log.Fields{
-			"priority": msg.Priority,
-			"body":     string(msg.Body),
-		}).Debug("start process")
-
 		var e EventNotifyMO
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			y.m.MODropped.Inc()
@@ -381,7 +375,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 	r = rec.Record{
 		SentAt:                   sentAt,
 		Msisdn:                   req.Params.Msisdn,
-		Tid:                      rec.GenerateTID(),
+		Tid:                      req.Tid,
 		SubscriptionStatus:       "",
 		CountryCode:              515,
 		OperatorCode:             y.conf.OperatorCode,
@@ -396,8 +390,8 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		OperatorToken:            req.Params.TransID,
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
-		PeriodicAllowedToHours:   svc.PeriodicAllowedFrom,
-		PeriodicAllowedFromHours: svc.PeriodicAllowedTo,
+		PeriodicAllowedFromHours: svc.PeriodicAllowedFrom,
+		PeriodicAllowedToHours:   svc.PeriodicAllowedTo,
 		SMSText:                  "Unfortunately, you cannot access our service",
 	}
 	return r, nil
@@ -431,14 +425,15 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 				"error":    err.Error(),
 				"msg":      "dropped",
 				"callback": string(msg.Body),
-			}).Error("consume from " + y.conf.CallBack.Name)
+				"q":        y.conf.CallBack.Name,
+			}).Error("failed")
 			goto ack
 		}
 		r, err = y.getRecordByCallback(e.EventData)
 		if err != nil {
 			goto ack
 		}
-		if strings.Contains(e.EventData.Params.StatusCode, "0") {
+		if e.EventData.Params.StatusCode == "0" {
 			r.Paid = true
 			y.m.SinceLastSuccessPay.Set(.0)
 		}
