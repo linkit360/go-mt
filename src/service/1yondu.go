@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -259,6 +260,16 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
+
+		if strings.Contains(e.EventData.Params.KeyWord, "off") {
+			r.SubscriptionStatus = "canceled"
+			if err := writeSubscriptionStatus(r); err != nil {
+				msg.Nack(false, true)
+				continue
+			}
+			goto ack
+		}
+
 		// in check MO func we have to have subscription id
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
 			y.m.AddToDBErrors.Inc()
@@ -267,6 +278,7 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 		} else {
 			y.m.AddToDbSuccess.Inc()
 		}
+
 		err = checkMO(&r, y.getPrevSubscriptionCache, y.setPrevSubscriptionCache)
 		if err != nil {
 			msg.Nack(false, true)
