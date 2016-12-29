@@ -15,6 +15,8 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	content_client "github.com/vostrok/contentd/rpcclient"
+	content_service "github.com/vostrok/contentd/service"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	yondu_service "github.com/vostrok/operator/ph/yondu/src/service"
 	transaction_log_service "github.com/vostrok/qlistener/src/service"
@@ -36,16 +38,18 @@ type yondu struct {
 }
 
 type YonduConfig struct {
-	Enabled         bool                            `yaml:"enabled" default:"false"`
-	OperatorName    string                          `yaml:"operator_name" default:"yondu"`
-	OperatorCode    int64                           `yaml:"operator_code" default:"51501"`
-	Periodic        PeriodicConfig                  `yaml:"periodic" `
-	Retries         RetriesConfig                   `yaml:"retries"`
-	SentConsent     string                          `yaml:"sent_consent"`
-	MT              string                          `yaml:"mt"`
-	Charge          string                          `yaml:"charge"`
-	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
-	CallBack        queue_config.ConsumeQueueConfig `yaml:"callback"`
+	Enabled            bool                            `yaml:"enabled" default:"false"`
+	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
+	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
+	ContentUrl         string                          `yaml:"content_url"`
+	Periodic           PeriodicConfig                  `yaml:"periodic" `
+	Retries            RetriesConfig                   `yaml:"retries"`
+	SentConsent        string                          `yaml:"sent_consent"`
+	MT                 string                          `yaml:"mt"`
+	Charge             string                          `yaml:"charge"`
+	NewSubscription    queue_config.ConsumeQueueConfig `yaml:"new"`
+	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
+	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
 }
 
 type PeriodicConfig struct {
@@ -53,7 +57,7 @@ type PeriodicConfig struct {
 	FetchLimit int  `yaml:"fetch_limit" default:"500"`
 }
 
-func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
+func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentConf content_client.RPCClientConfig) *yondu {
 	if !yConf.Enabled {
 		return nil
 	}
@@ -62,6 +66,8 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig) *yondu {
 	}
 	y.initMetrics()
 	y.initPrevSubscriptionsCache()
+
+	content_client.Init(contentConf)
 
 	if yConf.NewSubscription.Enabled {
 		if yConf.NewSubscription.Name == "" {
@@ -211,13 +217,38 @@ func (y *yondu) processPeriodic() {
 			}).Error("cannot get service by id")
 			continue
 		}
-		y.setRecCache(r)
-		// todo: get content via content service
-
-		if service.SendContentTextTemplate == "" {
-			service.SendContentTextTemplate = "%s"
+		contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
+			Msisdn:       r.Msisdn,
+			Tid:          r.Tid,
+			CampaignId:   r.CampaignId,
+			ServiceId:    r.ServiceId,
+			OperatorCode: r.OperatorCode,
+			CountryCode:  r.CountryCode,
+		})
+		if contentProperties.Error != "" {
+			err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
+			log.WithFields(log.Fields{
+				"serviceId": r.ServiceId,
+				"error":     err.Error(),
+			}).Error("cannotd internal error")
+			continue
 		}
-		r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, "test from moscow")
+		if err != nil {
+
+			err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
+			log.WithFields(log.Fields{
+				"serviceId": r.ServiceId,
+				"error":     err.Error(),
+			}).Error("cannot get unique content url")
+			continue
+		}
+
+		y.setRecCache(r)
+		if service.SendContentTextTemplate == "" {
+			service.SendContentTextTemplate = "Thanks! You could get content here: %s"
+		}
+		url := y.conf.ContentUrl + contentProperties.UniqueUrl
+		r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
 		if err := y.publishMT(r); err != nil {
 			logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 		}
@@ -261,13 +292,15 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 			continue
 		}
 
-		if strings.Contains(e.EventData.Params.KeyWord, "off") {
-			r.SubscriptionStatus = "canceled"
-			if err := writeSubscriptionStatus(r); err != nil {
-				msg.Nack(false, true)
-				continue
+		for _, marker := range y.conf.UnsubscribeMarkers {
+			if strings.Contains(e.EventData.Params.KeyWord, marker) {
+				r.SubscriptionStatus = "canceled"
+				if err := writeSubscriptionStatus(r); err != nil {
+					msg.Nack(false, true)
+					continue
+				}
+				goto ack
 			}
-			goto ack
 		}
 
 		// in check MO func we have to have subscription id

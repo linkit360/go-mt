@@ -54,6 +54,7 @@ service:
     enabled: true
     operator_name: yondu
     operator_code: 51501
+    content_url: http://dev.pk.linkit360.ru/uniq/
     periodic:
       enabled:  true
       fetch_limit: 10
@@ -65,6 +66,8 @@ service:
       - "yondu_charge"
       - "mt_manager"
       queue_free_size: 2500
+    unsubscribe:
+      - off
     sent_consent: yondu_consent
     mt: yondu_mt
     charge: yondu_charge
