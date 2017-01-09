@@ -217,13 +217,9 @@ func (y *yondu) processPeriodic() {
 			}).Error("cannot get service by id")
 			continue
 		}
-		contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
-			Msisdn:       r.Msisdn,
-			Tid:          r.Tid,
-			CampaignId:   r.CampaignId,
-			ServiceId:    r.ServiceId,
-			OperatorCode: r.OperatorCode,
-			CountryCode:  r.CountryCode,
+		contentProperties, err := content_client.GetUniqueUrl(content_service.GetUniqueUrlParams{
+			Msisdn:     r.Msisdn,
+			CampaignId: r.CampaignId,
 		})
 		if contentProperties.Error != "" {
 			err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)

@@ -9,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
+	content_client "github.com/vostrok/contentd/rpcclient"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/mt_manager/src/service"
 	"github.com/vostrok/utils/amqp"
@@ -19,14 +20,15 @@ type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	MetricInstancePrefix string                       `yaml:"metric_instance_prefix"`
-	AppName              string                       `yaml:"app_name"`
-	Server               ServerConfig                 `yaml:"server"`
-	Service              service.MTServiceConfig      `yaml:"service"`
-	InMemClientConfig    inmem_client.RPCClientConfig `yaml:"inmem_client"`
-	DbConf               db.DataBaseConfig            `yaml:"db"`
-	Publisher            amqp.NotifierConfig          `yaml:"publisher"`
-	Consumer             amqp.ConsumerConfig          `yaml:"consumer"`
+	MetricInstancePrefix string                         `yaml:"metric_instance_prefix"`
+	AppName              string                         `yaml:"app_name"`
+	Server               ServerConfig                   `yaml:"server"`
+	Service              service.MTServiceConfig        `yaml:"service"`
+	InMemClientConfig    inmem_client.RPCClientConfig   `yaml:"inmem_client"`
+	ContentdClientConfig content_client.RPCClientConfig `yaml:"contentd_client"`
+	DbConf               db.DataBaseConfig              `yaml:"db"`
+	Publisher            amqp.NotifierConfig            `yaml:"publisher"`
+	Consumer             amqp.ConsumerConfig            `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {

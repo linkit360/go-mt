@@ -7,6 +7,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 
+	content_client "github.com/vostrok/contentd/rpcclient"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/db"
@@ -51,6 +52,7 @@ func Init(
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
+	contentConfig content_client.RPCClientConfig,
 
 ) {
 	appName = name
@@ -74,7 +76,7 @@ func Init(
 	}
 
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
-	svc.y = initYondu(serviceConf.Yondu, consumerConfig)
+	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
 }
 
 func SaveState() {

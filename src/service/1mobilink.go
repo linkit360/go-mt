@@ -322,17 +322,17 @@ func (mb *mobilink) initPrevSubscriptionsCache() {
 	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
 	mb.prevCache = cache.New(24*time.Hour, time.Minute)
 	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
+		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
 		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
 	}
 }
 func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
 	_, found := mb.prevCache.Get(key)
 	return found
 }
 func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
 	_, found := mb.prevCache.Get(key)
 	if !found {
 		mb.prevCache.Set(key, struct{}{}, 24*time.Hour)

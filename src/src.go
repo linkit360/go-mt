@@ -26,6 +26,7 @@ func RunServer() {
 		appConfig.DbConf,
 		appConfig.Publisher,
 		appConfig.Consumer,
+		appConfig.ContentdClientConfig,
 	)
 
 	nuCPU := runtime.NumCPU()
