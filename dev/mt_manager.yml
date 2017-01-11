@@ -56,7 +56,7 @@ service:
     operator_code: 51501
     content_url: http://dev.pk.linkit360.ru/uniq/
     periodic:
-      enabled:  true
+      enabled: false
       fetch_limit: 10
     retries:
       enabled: false

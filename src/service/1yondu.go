@@ -779,13 +779,17 @@ func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
 // if no record found in leveldb, then we search in database
 func (y *yondu) getRecByTransId(operatorToken string) rec.Record {
 	var r rec.Record
-	if operatorToken == "" {
+	if operatorToken == "" || len(operatorToken) < 17 {
 		log.WithFields(log.Fields{
-			"error": "operator token is empty",
+			"token": operatorToken,
+			"error": "token is empty",
 		}).Error("cannot get transaction id cache")
 		return r
 	}
-	key := []byte(ldbTransIdRecordKey + operatorToken)
+
+	// operatorToken == 2910KRE9055209652148403127752002
+	// we use 2910KRE9055209652, without timestamp and their code
+	key := []byte(ldbTransIdRecordKey + operatorToken[:17])
 	recordJson, err := svc.ldb.Get(key, nil)
 	if err == leveldb.ErrNotFound {
 		log.WithFields(log.Fields{
@@ -855,7 +859,7 @@ func (y *yondu) setRecCache(r rec.Record) {
 		}).Error("cannot marshal")
 		return
 	}
-	key := []byte(ldbTransIdRecordKey + r.OperatorToken)
+	key := []byte(ldbTransIdRecordKey + y.transId(r))
 	err = svc.ldb.Put(key, recStr, nil)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -874,7 +878,10 @@ func (y *yondu) setRecCache(r rec.Record) {
 		"key":     string(key),
 	}).Debug("set transaction id cache")
 }
-
+func (y *yondu) transId(r rec.Record) string {
+	token := strings.Replace(r.OperatorToken, "DMP", "KRE", 1)
+	return token[:7] + r.Msisdn[2:]
+}
 func (y *yondu) deleteRecCache(r rec.Record) {
 	if r.OperatorToken == "" {
 		log.WithFields(log.Fields{
@@ -884,7 +891,8 @@ func (y *yondu) deleteRecCache(r rec.Record) {
 		}).Error("cannot delete transaction id cache")
 		return
 	}
-	key := []byte(ldbTransIdRecordKey + r.OperatorToken)
+
+	key := []byte(ldbTransIdRecordKey + y.transId(r))
 	err := svc.ldb.Delete(key, nil)
 	if err != nil {
 		log.WithFields(log.Fields{
