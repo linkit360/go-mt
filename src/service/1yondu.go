@@ -9,7 +9,6 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	cache "github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
@@ -27,14 +26,14 @@ import (
 )
 
 type yondu struct {
-	conf             YonduConfig
-	m                *YonduMetrics
-	prevCache        *cache.Cache
-	retriesWg        *sync.WaitGroup
-	MOCh             <-chan amqp_driver.Delivery
-	MOConsumer       *amqp.Consumer
-	CallBackCh       <-chan amqp_driver.Delivery
-	CallBackConsumer *amqp.Consumer
+	conf                YonduConfig
+	m                   *YonduMetrics
+	activeSubscriptions *activeSubscriptions
+	retriesWg           *sync.WaitGroup
+	MOCh                <-chan amqp_driver.Delivery
+	MOConsumer          *amqp.Consumer
+	CallBackCh          <-chan amqp_driver.Delivery
+	CallBackConsumer    *amqp.Consumer
 }
 
 type YonduConfig struct {
@@ -73,7 +72,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		conf: yConf,
 	}
 	y.initMetrics()
-	y.initPrevSubscriptionsCache()
+	y.initActiveSubscriptionsCache()
 
 	content_client.Init(contentConf)
 
@@ -306,6 +305,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				if err := y.publishMT(r); err != nil {
 					logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 				}
+				y.deleteActiveSubscriptionCache(r)
 				goto ack
 			}
 		}
@@ -319,7 +319,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			y.m.AddToDbSuccess.Inc()
 		}
 
-		err = checkMO(&r, y.getPrevSubscriptionCache, y.setPrevSubscriptionCache)
+		err = checkMO(&r, y.getActiveSubscriptionCache, y.setActiveSubscriptionCache)
 		if err != nil {
 			msg.Nack(false, true)
 			continue
@@ -676,38 +676,55 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 
 // ============================================================
 // go-cache inmemory cache for incoming mo subscriptions
-func (y *yondu) initPrevSubscriptionsCache() {
-	prev, err := rec.LoadPreviousSubscriptions(y.conf.OperatorCode)
+type activeSubscriptions struct {
+	byKey map[string]struct{}
+}
+
+func (y *yondu) initActiveSubscriptionsCache() {
+	// load all active subscriptions
+	prev, err := rec.LoadActiveSubscriptions(y.conf.OperatorCode, 0)
 	if err != nil {
-		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
+		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}
-	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
-	y.prevCache = cache.New(24*time.Hour, time.Minute)
+	log.WithField("count", len(prev)).Debug("loaded active subscriptions")
+	y.activeSubscriptions = &activeSubscriptions{
+		byKey: make(map[string]struct{}),
+	}
 	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
-		y.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
+		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
+		y.activeSubscriptions.byKey[key] = struct{}{}
 	}
 }
-func (y *yondu) getPrevSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
-	_, found := y.prevCache.Get(key)
+func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	_, found := y.activeSubscriptions.byKey[key]
 	log.WithFields(log.Fields{
 		"tid":   r.Tid,
 		"key":   key,
 		"found": found,
-	}).Debug("get previous subscription cache")
+	}).Debug("get active subscriptions cache")
 	return found
 }
-func (y *yondu) setPrevSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
-	_, found := y.prevCache.Get(key)
-	if !found {
-		y.prevCache.Set(key, struct{}{}, 24*time.Hour)
-		log.WithFields(log.Fields{
-			"tid": r.Tid,
-			"key": key,
-		}).Debug("set previous subscription cache")
+func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	if _, found := y.activeSubscriptions.byKey[key]; found {
+		return
 	}
+	y.activeSubscriptions.byKey[key] = struct{}{}
+	log.WithFields(log.Fields{
+		"tid": r.Tid,
+		"key": key,
+	}).Debug("set active subscriptions cache")
+}
+
+func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	delete(y.activeSubscriptions.byKey, key)
+	y.activeSubscriptions.byKey[key] = struct{}{}
+	log.WithFields(log.Fields{
+		"tid": r.Tid,
+		"key": key,
+	}).Debug("deleted from active subscriptions cache")
 }
 
 const ldbPeriodicKey = "yondu_periodic_"

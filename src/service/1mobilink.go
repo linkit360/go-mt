@@ -315,7 +315,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 func (mb *mobilink) initPrevSubscriptionsCache() {
-	prev, err := rec.LoadPreviousSubscriptions(mb.conf.OperatorCode)
+	prev, err := rec.LoadActiveSubscriptions(mb.conf.OperatorCode, 24)
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
 	}
