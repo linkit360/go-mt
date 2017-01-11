@@ -28,6 +28,9 @@ func removeRetry(msg rec.Record) error {
 func writeSubscriptionStatus(msg rec.Record) error {
 	return _notifyDBAction("WriteSubscriptionStatus", msg)
 }
+func unsubscribe(msg rec.Record) error {
+	return _notifyDBAction("Unsubscribe", msg)
+}
 func writeTransaction(msg rec.Record) error {
 	return _notifyDBAction("WriteTransaction", msg)
 }

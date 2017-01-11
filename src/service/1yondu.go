@@ -41,6 +41,7 @@ type YonduConfig struct {
 	Enabled            bool                            `yaml:"enabled" default:"false"`
 	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
 	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
+	Texts              TextsConfig                     `yaml:"texts"`
 	ContentUrl         string                          `yaml:"content_url"`
 	Periodic           PeriodicConfig                  `yaml:"periodic" `
 	Retries            RetriesConfig                   `yaml:"retries"`
@@ -50,6 +51,13 @@ type YonduConfig struct {
 	NewSubscription    queue_config.ConsumeQueueConfig `yaml:"new"`
 	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
+}
+
+type TextsConfig struct {
+	Rejected    string `yaml:"rejected" default:"You already subscribed on this service"`
+	BlackListed string `yaml:"blacklisted" default:"Sorry, service not available"`
+	PostPaid    string `yaml:"postpaid" default:"Sorry, service not available"`
+	Unsubscribe string `yaml:"unsubscribe" default:"You have been unsubscribed"`
 }
 
 type PeriodicConfig struct {
@@ -84,7 +92,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		amqp.InitQueue(
 			y.MOConsumer,
 			y.MOCh,
-			y.processNewSubscription,
+			y.processMO,
 			yConf.NewSubscription.ThreadsCount,
 			yConf.NewSubscription.Name,
 			yConf.NewSubscription.Name,
@@ -263,7 +271,7 @@ type EventNotifyMO struct {
 	EventData yondu_service.MOParameters `json:"event_data,omitempty"`
 }
 
-func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
+func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
@@ -290,10 +298,13 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 
 		for _, marker := range y.conf.UnsubscribeMarkers {
 			if strings.Contains(e.EventData.Params.KeyWord, marker) {
-				r.SubscriptionStatus = "canceled"
-				if err := writeSubscriptionStatus(r); err != nil {
+				if err := unsubscribe(r); err != nil {
 					msg.Nack(false, true)
 					continue
+				}
+				r.SMSText = y.conf.Texts.Unsubscribe
+				if err := y.publishMT(r); err != nil {
+					logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 				}
 				goto ack
 			}
@@ -341,8 +352,19 @@ func (y *yondu) processNewSubscription(deliveries <-chan amqp_driver.Delivery) {
 				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 			}
 		} else {
-			if err := y.publishMT(r); err != nil {
-				logCtx.WithField("error", err.Error()).Error("publishYonduMT")
+			if r.Result == "rejected" {
+				r.SMSText = y.conf.Texts.Rejected
+			}
+			if r.Result == "blacklisted" {
+				r.SMSText = y.conf.Texts.BlackListed
+			}
+			if r.Result == "postpaid" {
+				r.SMSText = y.conf.Texts.PostPaid
+			}
+			if r.SMSText != "" {
+				if err := y.publishMT(r); err != nil {
+					logCtx.WithField("error", err.Error()).Error("publishYonduMT")
+				}
 			}
 		}
 
@@ -384,21 +406,6 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		}).Error("cannot get service by id")
 		return r, err
 	}
-	publisher := ""
-	pixelSetting, err := inmem_client.GetPixelSettingByCampaignId(campaign.Id)
-	if err != nil {
-		y.m.MOUnknownPublisher.Inc()
-
-		err = fmt.Errorf("inmem_client.GetPixelSettingByCampaignId: %s", err.Error())
-		log.WithFields(log.Fields{
-			"keyword":    req.Params.KeyWord,
-			"serviceId":  campaign.ServiceId,
-			"campaignId": campaign.Id,
-			"error":      err.Error(),
-		}).Error("cannot get pixel setting by campaign id")
-	} else {
-		publisher = pixelSetting.Publisher
-	}
 
 	sentAt, err := time.Parse("20060102150405", req.Params.Timestamp)
 	if err != nil {
@@ -420,7 +427,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		SubscriptionStatus:       "",
 		CountryCode:              515,
 		OperatorCode:             y.conf.OperatorCode,
-		Publisher:                publisher,
+		Publisher:                "",
 		Pixel:                    "",
 		CampaignId:               campaign.Id,
 		ServiceId:                campaign.ServiceId,
@@ -433,7 +440,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedFromHours: svc.PeriodicAllowedFrom,
 		PeriodicAllowedToHours:   svc.PeriodicAllowedTo,
-		SMSText:                  "Unfortunately, you cannot access our service",
+		SMSText:                  "OK",
 	}
 	return r, nil
 }
