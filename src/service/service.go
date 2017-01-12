@@ -28,8 +28,8 @@ type MTService struct {
 type MTServiceConfig struct {
 	LevelDBFilePath string         `yaml:"leveldb_file"`
 	Queues          QueuesConfig   `yaml:"queues"`
-	Yondu           YonduConfig    `yaml:"yondu,omitempty"`
 	Mobilink        MobilinkConfig `yaml:"mobilink,omitempty"`
+	Yondu           YonduConfig    `yaml:"yondu,omitempty"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
