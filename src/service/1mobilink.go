@@ -36,7 +36,7 @@ type MobilinkConfig struct {
 	OperatorName    string                          `yaml:"operator_name" default:"mobilink"`
 	OperatorCode    int64                           `yaml:"operator_code" default:"41001"`
 	Retries         RetriesConfig                   `yaml:"retries"`
-	Periodic        PeriodicConfig                  `yaml:"periodic" `
+	Periodic        PeriodicConfig                  `yaml:"periodic"`
 	Requests        string                          `yaml:"requests"`
 	SMSRequests     string                          `yaml:"sms_requests"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
@@ -151,28 +151,27 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	go func() {
 	retries:
 		for range time.Tick(time.Duration(mbConfig.Retries.Period) * time.Second) {
-			//for true {
-			for _, queue := range mbConfig.Retries.CheckQueuesFree {
-				queueSize, err := svc.notifier.GetQueueSize(queue)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"operator": mbConfig.OperatorName,
-						"queue":    queue,
-						"error":    err.Error(),
-					}).Error("cannot get queue size")
-					continue retries
-				}
-				log.WithFields(log.Fields{
-					"queue":     queue,
-					"queueSize": queueSize,
-					"waitFor":   mbConfig.Retries.QueueFreeSize,
-				}).Debug("")
-				if queueSize > mbConfig.Retries.QueueFreeSize {
-					continue retries
-				}
-			}
-			log.WithFields(log.Fields{}).Debug("achieve free queues")
 			if mbConfig.Retries.Enabled {
+				for _, queue := range mbConfig.Retries.CheckQueuesFree {
+					queueSize, err := svc.notifier.GetQueueSize(queue)
+					if err != nil {
+						log.WithFields(log.Fields{
+							"operator": mbConfig.OperatorName,
+							"queue":    queue,
+							"error":    err.Error(),
+						}).Error("cannot get queue size")
+						continue retries
+					}
+					log.WithFields(log.Fields{
+						"queue":     queue,
+						"queueSize": queueSize,
+						"waitFor":   mbConfig.Retries.QueueFreeSize,
+					}).Debug("")
+					if queueSize > mbConfig.Retries.QueueFreeSize {
+						continue retries
+					}
+				}
+				log.WithFields(log.Fields{}).Debug("achieve free queues")
 				mb.m.SinceRetryStartProcessed.Set(.0)
 				ProcessRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
 			} else {

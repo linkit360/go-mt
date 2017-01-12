@@ -246,16 +246,16 @@ func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
 	}
 	url := y.conf.ContentUrl + contentProperties.UniqueUrl
 	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
-	if err := y.publishMT(r); err != nil {
+	if err = y.publishMT(r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 		return
 	}
-	if err := y.publishCharge(1, r); err != nil {
+	if err = y.publishCharge(1, r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
 		return
 	}
 	begin := time.Now()
-	if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
 		Errors.Inc()
 		return
 	}
@@ -538,10 +538,15 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	ack:
+		// is was pending
 		begin := time.Now()
 		if err := rec.SetSubscriptionStatus("", r.SubscriptionId); err != nil {
 			Errors.Inc()
-			return err
+			err = fmt.Errorf("rec.SetSubscriptionStatus: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Error("cannot set subscription status")
+			return
 		}
 		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 
