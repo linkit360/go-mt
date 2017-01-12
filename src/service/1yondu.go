@@ -11,9 +11,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
-
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
+
 	content_client "github.com/vostrok/contentd/rpcclient"
 	content_service "github.com/vostrok/contentd/service"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -40,6 +39,7 @@ type YonduConfig struct {
 	Enabled            bool                            `yaml:"enabled" default:"false"`
 	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
 	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
+	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Texts              TextsConfig                     `yaml:"texts"`
 	ContentUrl         string                          `yaml:"content_url"`
 	Periodic           PeriodicConfig                  `yaml:"periodic" `
@@ -182,20 +182,9 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 func (y *yondu) processPeriodic() {
 
 	begin := time.Now()
-	notIn, err := y.getPendingPeriodicSubscriptionIds()
-	if err != nil {
-		err = fmt.Errorf("y.getPendingSubscriptionIds: %s", err.Error())
-		log.WithFields(log.Fields{
-			"error": err.Error(),
-		}).Error("cannot get periodic not ins")
-		return
-	}
-	log.WithField("ids", notIn).Debug("pending subscription ids")
-
 	periodics, err := rec.GetPeriodics(
 		y.conf.OperatorCode,
 		y.conf.Periodic.FetchLimit,
-		notIn,
 	)
 	if err != nil {
 		err = fmt.Errorf("rec.GetPeriodics: %s", err.Error())
@@ -204,63 +193,74 @@ func (y *yondu) processPeriodic() {
 		}).Error("cannot get periodics")
 		return
 	}
+
 	y.m.GetPeriodicsDuration.Observe(time.Since(begin).Seconds())
 
 	begin = time.Now()
 	for _, r := range periodics {
-		logCtx := log.WithFields(log.Fields{
-			"tid":    r.Tid,
-			"msisdn": r.Msisdn,
-		})
-
-		service, err := inmem_client.GetServiceById(r.ServiceId)
-		if err != nil {
-			y.m.MOUnknownService.Inc()
-
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
-			log.WithFields(log.Fields{
-				"serviceId": r.ServiceId,
-				"error":     err.Error(),
-			}).Error("cannot get service by id")
-			continue
-		}
-		contentProperties, err := content_client.GetUniqueUrl(content_service.GetUniqueUrlParams{
-			Msisdn:     r.Msisdn,
-			CampaignId: r.CampaignId,
-		})
-		if contentProperties.Error != "" {
-			err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
-			log.WithFields(log.Fields{
-				"serviceId": r.ServiceId,
-				"error":     err.Error(),
-			}).Error("cannotd internal error")
-			continue
-		}
-		if err != nil {
-
-			err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
-			log.WithFields(log.Fields{
-				"serviceId": r.ServiceId,
-				"error":     err.Error(),
-			}).Error("cannot get unique content url")
-			continue
-		}
-
-		y.setRecCache(r)
-		if service.SendContentTextTemplate == "" {
-			service.SendContentTextTemplate = "Thanks! You could get content here: %s"
-		}
-		url := y.conf.ContentUrl + contentProperties.UniqueUrl
-		r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
-		if err := y.publishMT(r); err != nil {
-			logCtx.WithField("error", err.Error()).Error("publishYonduMT")
-		}
-		if err := y.publishCharge(1, r); err != nil {
-			logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
-		}
-		y.setPendingPeriodicSubscriptionCache(r)
+		y.sentMTAndCharge(r)
 	}
 	y.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
+}
+
+func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
+	logCtx := log.WithFields(log.Fields{
+		"tid":    r.Tid,
+		"msisdn": r.Msisdn,
+	})
+	service, err := inmem_client.GetServiceById(r.ServiceId)
+	if err != nil {
+		y.m.MOUnknownService.Inc()
+
+		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		logCtx.WithFields(log.Fields{
+			"serviceId": r.ServiceId,
+			"error":     err.Error(),
+		}).Error("cannot get service by id")
+		return
+	}
+	contentProperties, err := content_client.GetUniqueUrl(content_service.GetUniqueUrlParams{
+		Msisdn:     r.Msisdn,
+		CampaignId: r.CampaignId,
+	})
+	if contentProperties.Error != "" {
+		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
+		logCtx.WithFields(log.Fields{
+			"serviceId": r.ServiceId,
+			"error":     err.Error(),
+		}).Error("contentd internal error")
+		return
+	}
+	if err != nil {
+		err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
+		logCtx.WithFields(log.Fields{
+			"serviceId": r.ServiceId,
+			"error":     err.Error(),
+		}).Error("cannot get unique content url")
+		return
+	}
+
+	y.setRecCache(r)
+	if service.SendContentTextTemplate == "" {
+		service.SendContentTextTemplate = "Thanks! You could get content here: %s"
+	}
+	url := y.conf.ContentUrl + contentProperties.UniqueUrl
+	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
+	if err := y.publishMT(r); err != nil {
+		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
+		return
+	}
+	if err := y.publishCharge(1, r); err != nil {
+		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
+		return
+	}
+	begin := time.Now()
+	if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+		Errors.Inc()
+		return
+	}
+	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	return
 }
 
 // ============================================================
@@ -353,6 +353,14 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}
 		} else {
 			if r.Result == "rejected" {
+				r.Periodic = false
+				if y.conf.ChargeOnRejected {
+					r.SubscriptionStatus = ""
+					r.Periodic = false
+					writeSubscriptionStatus(r)
+					y.sentMTAndCharge(r)
+					goto ack
+				}
 				r.SMSText = y.conf.Texts.Rejected
 			}
 			if r.Result == "blacklisted" {
@@ -530,7 +538,13 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	ack:
-		y.deletePendingPeriodicSubscriptionCache(r)
+		begin := time.Now()
+		if err := rec.SetSubscriptionStatus("", r.SubscriptionId); err != nil {
+			Errors.Inc()
+			return err
+		}
+		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 		if err := msg.Ack(false); err != nil {
 			logCtx.WithFields(log.Fields{
 				"callback": msg.Body,
@@ -686,7 +700,6 @@ func (y *yondu) initActiveSubscriptionsCache() {
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}
-	log.WithField("count", len(prev)).Debug("loaded active subscriptions")
 	y.activeSubscriptions = &activeSubscriptions{
 		byKey: make(map[string]struct{}),
 	}
@@ -720,83 +733,13 @@ func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
 func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
 	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
 	delete(y.activeSubscriptions.byKey, key)
-	y.activeSubscriptions.byKey[key] = struct{}{}
 	log.WithFields(log.Fields{
 		"tid": r.Tid,
 		"key": key,
 	}).Debug("deleted from active subscriptions cache")
 }
 
-const ldbPeriodicKey = "yondu_periodic_"
 const ldbTransIdRecordKey = "yondu_transid_"
-
-// ============================================================
-// leveldb cache for pending periodic subscription:
-// get ids and do not initiate new charge if id is in this list
-func (y *yondu) setPendingPeriodicSubscriptionCache(r rec.Record) {
-	if r.SubscriptionId == 0 {
-		log.WithFields(log.Fields{
-			"transid": r.OperatorToken,
-			"tid":     r.Tid,
-			"msisdn":  r.Msisdn,
-			"error":   "no subscription id found",
-		}).Fatal("set pending subscription cache failed")
-	}
-	key := []byte(ldbPeriodicKey + strconv.FormatInt(r.SubscriptionId, 10))
-	err := svc.ldb.Put(key, []byte(fmt.Sprintf("%d", r.SubscriptionId)), nil)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"transid": r.OperatorToken,
-			"tid":     r.Tid,
-			"msisdn":  r.Msisdn,
-			"error":   err.Error(),
-		}).Fatal("set pending subscription cache failed")
-	}
-	log.WithFields(log.Fields{
-		"transid": r.OperatorToken,
-		"tid":     r.Tid,
-		"key":     string(key),
-	}).Debug("set pending subscription cache")
-}
-func (y *yondu) deletePendingPeriodicSubscriptionCache(r rec.Record) {
-	key := []byte(ldbPeriodicKey + strconv.FormatInt(r.SubscriptionId, 10))
-	err := svc.ldb.Delete(key, nil)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"transid": r.OperatorToken,
-			"tid":     r.Tid,
-			"msisdn":  r.Msisdn,
-			"error":   err.Error(),
-		}).Fatal("delete pending subscription cache")
-	}
-	log.WithFields(log.Fields{
-		"subscriptionId": r.SubscriptionId,
-		"tid":            r.Tid,
-		"key":            string(key),
-	}).Debug("deleted pending subscription cache")
-}
-func (y *yondu) getPendingPeriodicSubscriptionIds() (ids []int64, err error) {
-	iter := svc.ldb.NewIterator(util.BytesPrefix([]byte(ldbPeriodicKey)), nil)
-	for iter.Next() {
-		value := iter.Value()
-		var id int64
-		id, err = strconv.ParseInt(string(value), 10, 64)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"error": err.Error(),
-				"value": value,
-			}).Error("parse periodics id")
-			continue
-		}
-		ids = append(ids, id)
-	}
-	iter.Release()
-	if err = iter.Error(); err != nil {
-		err = fmt.Errorf("iter.Error: %s", err.Error())
-		return
-	}
-	return
-}
 
 // ============================================================
 // leveldb cache: when callback arrives, we could get the record by callback transid parameter

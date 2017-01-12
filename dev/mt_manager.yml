@@ -55,13 +55,14 @@ service:
     operator_name: yondu
     operator_code: 51501
     content_url: http://dev.pk.linkit360.ru/uniq/
+    charge_on_rejected: true
     texts:
       rejected: You already subscribed on this service.
       blacklisted: Sorry, service not available.
       postpaid: Sorry, service not available
       unsubscribe: You have been unsubscribed
     periodic:
-      enabled: false
+      enabled: true
       fetch_limit: 10
     retries:
       enabled: false

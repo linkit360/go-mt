@@ -95,7 +95,7 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 		Errors.Inc()
 		return err
 	}
-	SetPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	SetRetryPendingStatusDuration.Observe(time.Since(begin).Seconds())
 
 	begin = time.Now()
 	priority := uint8(0)

@@ -11,7 +11,7 @@ import (
 )
 
 // chech functions for MO, retries, responses
-func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bool, setPreviousSubscriptionFn func(r rec.Record)) error {
+func checkMO(record *rec.Record, getActiveSubscriptionFn func(r rec.Record) bool, setActiveSubscriptionFn func(r rec.Record)) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid": record.Tid,
 	})
@@ -20,7 +20,7 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bo
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
 	if record.PaidHours > 0 {
-		hasPrevious := getPreviousSubscriptionFn(*record)
+		hasPrevious := getActiveSubscriptionFn(*record)
 		if hasPrevious {
 			Rejected.Inc()
 
@@ -38,14 +38,14 @@ func checkMO(record *rec.Record, getPreviousSubscriptionFn func(r rec.Record) bo
 			}
 			return nil
 		} else {
-			logCtx.Debug("no previous subscription found")
+			logCtx.Debug("no active subscription found")
 		}
 	}
 	if err := checkBlackListedPostpaid(record); err != nil {
 		return err
 	}
 	if record.PaidHours > 0 {
-		setPreviousSubscriptionFn(*record)
+		setActiveSubscriptionFn(*record)
 	}
 	return nil
 }
