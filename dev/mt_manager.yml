@@ -1,4 +1,3 @@
-metric_instance_prefix: pk_mobilink1
 app_name: mt_manager
 
 server:
@@ -12,13 +11,13 @@ service:
     transaction_log: transaction_log
 
   mobilink:
-    enabled: true
+    enabled: false
     operator_name: mobilink
     operator_code: 41001
     retries:
       enabled: false
       period: 1
-      queue_free_size: 0
+      queue_free_size: 3500
       fetch_limit: 2500
       check_queues_free:
       - "mobilink_requests"
@@ -51,27 +50,28 @@ service:
 
 
   yondu:
-    enabled: false
+    enabled: true
     operator_name: yondu
     operator_code: 51501
     content_url: http://dev.pk.linkit360.ru/uniq/
     charge_on_rejected: true
     texts:
-      rejected: You already subscribed on this service.
-      blacklisted: Sorry, service not available.
-      postpaid: Sorry, service not available
-      unsubscribe: You have been unsubscribed
+      rejected: "You already subscribed on this service."
+      rejected_charge: "You already subscribed on this service. Please find more games here: %s"
+      blacklisted: "Sorry, service not available."
+      postpaid: "Sorry, service not available."
+      unsubscribe: "You have been unsubscribed."
     periodic:
-      enabled: true
+      enabled: false
       fetch_limit: 10
     retries:
-      enabled: false
+      enabled: true
       period: 500
-      fetch_limit:
+      fetch_limit: 2500
+      queue_free_size: 3500
       check_queues_free:
       - "yondu_charge"
       - "mt_manager"
-      queue_free_size: 2500
     unsubscribe:
       - off
     sent_consent: yondu_consent

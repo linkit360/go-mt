@@ -20,7 +20,6 @@ type ServerConfig struct {
 	Port string `default:"50304"`
 }
 type AppConfig struct {
-	MetricInstancePrefix string                         `yaml:"metric_instance_prefix"`
 	AppName              string                         `yaml:"app_name"`
 	Server               ServerConfig                   `yaml:"server"`
 	Service              service.MTServiceConfig        `yaml:"service"`
@@ -47,13 +46,6 @@ func LoadConfig() AppConfig {
 	if strings.Contains(appConfig.AppName, "-") {
 		log.Fatal("app name must be without '-' : it's not a valid metric name")
 	}
-	if appConfig.MetricInstancePrefix == "" {
-		log.Fatal("metric_instance_prefix be defiled as <host>_<name>")
-	}
-	if strings.Contains(appConfig.MetricInstancePrefix, "-") {
-		log.Fatal("metric_instance_prefix be without '-' : it's not a valid metric name")
-	}
-
 	appConfig.Server.Port = envString("PORT", appConfig.Server.Port)
 	appConfig.Publisher.Conn.Host = envString("RBMQ_HOST", appConfig.Publisher.Conn.Host)
 	appConfig.Consumer.Conn.Host = envString("RBMQ_HOST", appConfig.Consumer.Conn.Host)

@@ -25,6 +25,7 @@ var (
 	PostPaid              m.Gauge
 	Rejected              m.Gauge
 	BlackListed           m.Gauge
+	ContentdRPCDialError  m.Gauge
 )
 
 func newGaugeNotPaid(name, help string) m.Gauge {
@@ -46,6 +47,7 @@ func initMetrics(appName string) {
 	BlackListed = newGaugeNotPaid(appName+"_blacklisted", "Blacklisted count")
 	SetPendingStatusErrors = m.NewGauge(appName, "", "set_pending_status_errors", "set_pending status")
 	DelayHoursArentPassed = m.NewGauge(appName, "", "delay_hours_arent_passed", "delay_hours_arent_passed")
+	ContentdRPCDialError = m.NewGauge(appName, "contentd", "errors", "contentd errors")
 
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -56,6 +58,7 @@ func initMetrics(appName string) {
 			BlackListed.Update()
 			SetPendingStatusErrors.Update()
 			DelayHoursArentPassed.Update()
+			ContentdRPCDialError.Update()
 		}
 	}()
 

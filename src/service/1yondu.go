@@ -53,10 +53,11 @@ type YonduConfig struct {
 }
 
 type TextsConfig struct {
-	Rejected    string `yaml:"rejected" default:"You already subscribed on this service"`
-	BlackListed string `yaml:"blacklisted" default:"Sorry, service not available"`
-	PostPaid    string `yaml:"postpaid" default:"Sorry, service not available"`
-	Unsubscribe string `yaml:"unsubscribe" default:"You have been unsubscribed"`
+	Rejected       string `yaml:"rejected" default:"You already subscribed on this service"`
+	RejectedCharge string `yaml:"rejected_charge" default:"You already subscribed on this service. Please find more games here: %s"`
+	BlackListed    string `yaml:"blacklisted" default:"Sorry, service not available"`
+	PostPaid       string `yaml:"postpaid" default:"Sorry, service not available"`
+	Unsubscribe    string `yaml:"unsubscribe" default:"You have been unsubscribed"`
 }
 
 type PeriodicConfig struct {
@@ -135,8 +136,8 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		log.Debug("periodic disabled")
 	}
 
-	if yConf.Retries.Enabled {
-		go func() {
+	go func() {
+		if yConf.Retries.Enabled {
 		retries:
 			for range time.Tick(time.Duration(yConf.Retries.Period) * time.Second) {
 				for _, queue := range yConf.Retries.CheckQueuesFree {
@@ -165,9 +166,8 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 				}).Debug("achieve free queues size")
 				ProcessRetries(yConf.OperatorCode, yConf.Retries.FetchLimit, y.publishCharge)
 			}
-		}()
-
-	}
+		}
+	}()
 	return y
 }
 
@@ -198,15 +198,35 @@ func (y *yondu) processPeriodic() {
 
 	begin = time.Now()
 	for _, r := range periodics {
-		y.sentMTAndCharge(r)
+		if err := y.sentContent(r); err != nil {
+			Errors.Inc()
+		}
+		if err := y.charge(r); err != nil {
+			Errors.Inc()
+		}
 	}
 	y.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
 
-func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
+func (y *yondu) charge(r rec.Record) (err error) {
 	logCtx := log.WithFields(log.Fields{
-		"tid":    r.Tid,
-		"msisdn": r.Msisdn,
+		"tid": r.Tid,
+	})
+	if err = y.publishCharge(1, r); err != nil {
+		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
+		return
+	}
+	begin := time.Now()
+	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+		return
+	}
+	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	return
+}
+
+func (y *yondu) sentContent(r rec.Record) (err error) {
+	logCtx := log.WithFields(log.Fields{
+		"tid": r.Tid,
 	})
 	service, err := inmem_client.GetServiceById(r.ServiceId)
 	if err != nil {
@@ -219,11 +239,16 @@ func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
 		}).Error("cannot get service by id")
 		return
 	}
-	contentProperties, err := content_client.GetUniqueUrl(content_service.GetUniqueUrlParams{
-		Msisdn:     r.Msisdn,
-		CampaignId: r.CampaignId,
+	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
+		Msisdn:       r.Msisdn,
+		Tid:          r.Tid,
+		ServiceId:    r.ServiceId,
+		CampaignId:   r.CampaignId,
+		OperatorCode: r.OperatorCode,
+		CountryCode:  r.CountryCode,
 	})
 	if contentProperties.Error != "" {
+		ContentdRPCDialError.Inc()
 		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
 		logCtx.WithFields(log.Fields{
 			"serviceId": r.ServiceId,
@@ -232,6 +257,7 @@ func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
 		return
 	}
 	if err != nil {
+		ContentdRPCDialError.Inc()
 		err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"serviceId": r.ServiceId,
@@ -241,25 +267,12 @@ func (y *yondu) sentMTAndCharge(r rec.Record) (err error) {
 	}
 
 	y.setRecCache(r)
-	if service.SendContentTextTemplate == "" {
-		service.SendContentTextTemplate = "Thanks! You could get content here: %s"
-	}
 	url := y.conf.ContentUrl + contentProperties.UniqueUrl
-	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
+	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate + url)
 	if err = y.publishMT(r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 		return
 	}
-	if err = y.publishCharge(1, r); err != nil {
-		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
-		return
-	}
-	begin := time.Now()
-	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-		Errors.Inc()
-		return
-	}
-	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 	return
 }
 
@@ -357,8 +370,15 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				if y.conf.ChargeOnRejected {
 					r.SubscriptionStatus = ""
 					r.Periodic = false
-					writeSubscriptionStatus(r)
-					y.sentMTAndCharge(r)
+					if err := writeSubscriptionStatus(r); err != nil {
+						Errors.Inc()
+					}
+					if err := y.sentContent(r); err != nil {
+						Errors.Inc()
+					}
+					if err := y.charge(r); err != nil {
+						Errors.Inc()
+					}
 					goto ack
 				}
 				r.SMSText = y.conf.Texts.Rejected
