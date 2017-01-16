@@ -330,7 +330,28 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-
+		transactionMsg = transaction_log_service.OperatorTransactionLog{
+			Tid:              r.Tid,
+			Msisdn:           r.Msisdn,
+			OperatorToken:    r.OperatorToken,
+			OperatorCode:     r.OperatorCode,
+			CountryCode:      r.CountryCode,
+			Error:            "",
+			Price:            r.Price,
+			ServiceId:        r.ServiceId,
+			SubscriptionId:   r.SubscriptionId,
+			CampaignId:       r.CampaignId,
+			RequestBody:      e.EventData.Raw,
+			ResponseBody:     "",
+			ResponseDecision: "",
+			ResponseCode:     200,
+			SentAt:           r.SentAt,
+			Type:             e.EventName,
+		}
+		if err = publishTransactionLog("mo", transactionMsg); err != nil {
+			Errors.Inc()
+			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
+		}
 		for _, marker := range y.conf.UnsubscribeMarkers {
 			if strings.Contains(e.EventData.Params.KeyWord, marker) {
 				if err := unsubscribe(r); err != nil {
@@ -360,29 +381,6 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 		if err != nil {
 			msg.Nack(false, true)
 			continue
-		}
-
-		transactionMsg = transaction_log_service.OperatorTransactionLog{
-			Tid:              r.Tid,
-			Msisdn:           r.Msisdn,
-			OperatorToken:    r.OperatorToken,
-			OperatorCode:     r.OperatorCode,
-			CountryCode:      r.CountryCode,
-			Error:            "",
-			Price:            r.Price,
-			ServiceId:        r.ServiceId,
-			SubscriptionId:   r.SubscriptionId,
-			CampaignId:       r.CampaignId,
-			RequestBody:      e.EventData.Raw,
-			ResponseBody:     "",
-			ResponseDecision: "",
-			ResponseCode:     200,
-			SentAt:           r.SentAt,
-			Type:             e.EventName,
-		}
-		if err := publishTransactionLog("mo", transactionMsg); err != nil {
-			Errors.Inc()
-			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
 		}
 		if r.Result == "" {
 			y.setRecCache(r)
