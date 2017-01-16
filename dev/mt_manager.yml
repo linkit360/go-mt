@@ -53,7 +53,7 @@ service:
     enabled: true
     operator_name: yondu
     operator_code: 51501
-    content_url: http://dev.pk.linkit360.ru/uniq/
+    content_url: http://dev.pk.linkit360.ru/u/
     charge_on_rejected: true
     texts:
       rejected: "You already subscribed on this service."

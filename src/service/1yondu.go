@@ -201,18 +201,18 @@ func (y *yondu) processPeriodic() {
 		if err := y.sentContent(r); err != nil {
 			Errors.Inc()
 		}
-		if err := y.charge(r); err != nil {
+		if err := y.charge(r, 1); err != nil {
 			Errors.Inc()
 		}
 	}
 	y.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
 
-func (y *yondu) charge(r rec.Record) (err error) {
+func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
-	if err = y.publishCharge(1, r); err != nil {
+	if err = y.publishCharge(priority, r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
 		return
 	}
@@ -221,6 +221,10 @@ func (y *yondu) charge(r rec.Record) (err error) {
 		return
 	}
 	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	logCtx.WithFields(log.Fields{
+		"amount":   r.Price,
+		"priority": priority,
+	}).Error("charge")
 	return
 }
 
@@ -228,6 +232,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
+
 	service, err := inmem_client.GetServiceById(r.ServiceId)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
@@ -239,6 +244,21 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		}).Error("cannot get service by id")
 		return
 	}
+
+	// ========================================
+	y.setRecCache(r)
+	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate)
+	if err = y.publishMT(r); err != nil {
+		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
+		return
+	}
+	logCtx.WithFields(log.Fields{
+		"text": r.SMSText,
+	}).Error("send text")
+	return
+
+	// ========================================
+
 	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
 		Msisdn:       r.Msisdn,
 		Tid:          r.Tid,
@@ -268,11 +288,14 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 
 	y.setRecCache(r)
 	url := y.conf.ContentUrl + contentProperties.UniqueUrl
-	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate + url)
+	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
 	if err = y.publishMT(r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 		return
 	}
+	logCtx.WithFields(log.Fields{
+		"text": r.SMSText,
+	}).Error("send text")
 	return
 }
 
@@ -325,6 +348,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 		// in check MO func we have to have subscription id
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
+			Errors.Inc()
 			y.m.AddToDBErrors.Inc()
 			msg.Nack(false, true)
 			continue
@@ -357,11 +381,13 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			Type:             e.EventName,
 		}
 		if err := publishTransactionLog("mo", transactionMsg); err != nil {
+			Errors.Inc()
 			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
 		}
 		if r.Result == "" {
 			y.setRecCache(r)
 			if err := y.publishSentConsent(r); err != nil {
+				Errors.Inc()
 				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 			}
 		} else {
@@ -370,13 +396,13 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				if y.conf.ChargeOnRejected {
 					r.SubscriptionStatus = ""
 					r.Periodic = false
-					if err := writeSubscriptionStatus(r); err != nil {
+					if err := writeSubscriptionPeriodic(r); err != nil {
 						Errors.Inc()
 					}
 					if err := y.sentContent(r); err != nil {
 						Errors.Inc()
 					}
-					if err := y.charge(r); err != nil {
+					if err := y.charge(r, 1); err != nil {
 						Errors.Inc()
 					}
 					goto ack
@@ -835,9 +861,8 @@ func (y *yondu) getRecByTransId(operatorToken string) rec.Record {
 func (y *yondu) setRecCache(r rec.Record) {
 	if r.OperatorToken == "" {
 		log.WithFields(log.Fields{
-			"tid":    r.Tid,
-			"msisdn": r.Msisdn,
-			"error":  "operator token is empty",
+			"tid":   r.Tid,
+			"error": "operator token is empty",
 		}).Error("cannot set transaction id cache")
 		return
 	}
@@ -846,7 +871,6 @@ func (y *yondu) setRecCache(r rec.Record) {
 		log.WithFields(log.Fields{
 			"transid": r.OperatorToken,
 			"tid":     r.Tid,
-			"msisdn":  r.Msisdn,
 			"error":   err.Error(),
 		}).Error("cannot marshal")
 		return
@@ -866,7 +890,6 @@ func (y *yondu) setRecCache(r rec.Record) {
 	log.WithFields(log.Fields{
 		"transid": r.OperatorToken,
 		"tid":     r.Tid,
-		"token":   r.OperatorToken,
 		"key":     string(key),
 	}).Debug("set transaction id cache")
 }

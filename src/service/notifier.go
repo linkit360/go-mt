@@ -28,6 +28,9 @@ func removeRetry(msg rec.Record) error {
 func writeSubscriptionStatus(msg rec.Record) error {
 	return _notifyDBAction("WriteSubscriptionStatus", msg)
 }
+func writeSubscriptionPeriodic(msg rec.Record) error {
+	return _notifyDBAction("WriteSubscriptionPeriodic", msg)
+}
 func unsubscribe(msg rec.Record) error {
 	return _notifyDBAction("Unsubscribe", msg)
 }
@@ -48,10 +51,11 @@ func _notifyDBAction(eventName string, msg rec.Record) (err error) {
 			log.WithFields(fields).Error("cannot send")
 		} else {
 			fields := log.Fields{
-				"event":  eventName,
-				"tid":    msg.Tid,
-				"status": msg.SubscriptionStatus,
-				"q":      svc.conf.Queues.DBActions,
+				"event":    eventName,
+				"tid":      msg.Tid,
+				"status":   msg.SubscriptionStatus,
+				"periodic": msg.Periodic,
+				"q":        svc.conf.Queues.DBActions,
 			}
 			log.WithFields(fields).Info("sent")
 		}

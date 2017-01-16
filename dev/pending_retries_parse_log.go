@@ -35,7 +35,6 @@ func main() {
 var paidCount = 0
 
 func process() {
-	m.Init("script")
 	cfg := flag.String("config", "mt_manager.yml", "configuration yml file")
 	hours := flag.Int("hours", 1, "hours")
 	limit := flag.Int("limit", 1, "limit of retries to process")
