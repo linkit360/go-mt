@@ -348,6 +348,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
 		}
+
 		if err = publishTransactionLog("mo", transactionMsg); err != nil {
 			Errors.Inc()
 			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
@@ -635,7 +636,6 @@ type YonduMetrics struct {
 	MODropped                m.Gauge
 	MOUnknownCampaign        m.Gauge
 	MOUnknownService         m.Gauge
-	MOUnknownPublisher       m.Gauge
 	MOParseTimeError         m.Gauge
 	CallBackDropped          m.Gauge
 	CallBackParseTimeError   m.Gauge
@@ -653,7 +653,6 @@ func (y *yondu) initMetrics() {
 		MODropped:                m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
 		MOUnknownCampaign:        m.NewGauge(appName, telcoName, "mo_unknown_campaign", "yondu MO unknown campaign"),
 		MOUnknownService:         m.NewGauge(appName, telcoName, "mo_unknown_service", "yondu MO unknown service"),
-		MOUnknownPublisher:       m.NewGauge(appName, telcoName, "mo_unknown_pixel_setting", "yondu MO unknown pixel setting"),
 		MOParseTimeError:         m.NewGauge(appName, telcoName, "mo_parse_time_error", "yondu MO parse operators time error"),
 		CallBackDropped:          m.NewGauge(appName, telcoName, "callback_dropped", "yondu callback dropped"),
 		CallBackParseTimeError:   m.NewGauge(appName, telcoName, "callback_parse_time_error", "yondu callback parse operators time error"),
@@ -669,7 +668,6 @@ func (y *yondu) initMetrics() {
 			ym.MODropped.Update()
 			ym.MOUnknownCampaign.Update()
 			ym.MOUnknownService.Update()
-			ym.MOUnknownPublisher.Update()
 			ym.MOParseTimeError.Update()
 			ym.CallBackDropped.Update()
 			ym.CallBackParseTimeError.Update()

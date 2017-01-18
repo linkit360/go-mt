@@ -165,7 +165,7 @@ func processResponse(r *rec.Record) error {
 		} else {
 			logCtx.Info("already in postpaid inmem")
 		}
-		if r.AttemptsCount >= 1 {
+		if r.Type != "expired" && r.AttemptsCount >= 1 {
 			if err := removeRetry(*r); err != nil {
 				Errors.Inc()
 				return err
@@ -181,12 +181,24 @@ func processResponse(r *rec.Record) error {
 		} else {
 			r.Result = "paid"
 		}
+		if r.Type == "expired" {
+			r.Result = "expired_paid"
+		}
+		if r.Type == "injection" {
+			r.Result = "injection_paid"
+		}
 	} else {
 		r.SubscriptionStatus = "failed"
 		if r.AttemptsCount >= 1 {
 			r.Result = "retry_failed"
 		} else {
 			r.Result = "failed"
+		}
+		if r.Type == "expired" {
+			r.Result = "expired_failed"
+		}
+		if r.Type == "injection" {
+			r.Result = "injection_failed"
 		}
 	}
 

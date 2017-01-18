@@ -88,6 +88,18 @@ service:
       enabled: true
       threads_count: 10
 
+  scripts:
+    pending:
+      hours: 1
+      limit: 1
+      response:
+        41001:
+          response_log: /var/log/linkit/response_mobilink.log
+          response_queue: mobilink_responses
+        51501:
+          response_log: /var/log/linkit/response_yondu.log
+          response_queue: yondu_callback
+
 db:
   conn_ttl: -1
   max_open_conns: 15
