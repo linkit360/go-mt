@@ -56,4 +56,9 @@ func initMetrics(appName string) {
 			ContentdRPCDialError.Update()
 		}
 	}()
+	go func() {
+		for range time.Tick(time.Second) {
+			SinceLastSuccessPay.Inc()
+		}
+	}()
 }

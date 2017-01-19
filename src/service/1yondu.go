@@ -536,7 +536,6 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 		if e.EventData.Params.StatusCode == "0" {
 			r.Paid = true
-			y.m.SinceLastSuccessPay.Set(.0)
 		}
 		if err = processResponse(&r); err != nil {
 			msg.Nack(false, true)
@@ -642,7 +641,6 @@ type YonduMetrics struct {
 	CallBackTransIdError     m.Gauge
 	AddToDBErrors            m.Gauge
 	AddToDbSuccess           m.Gauge
-	SinceLastSuccessPay      prometheus.Gauge
 	GetPeriodicsDuration     prometheus.Summary
 	ProcessPeriodicsDuration prometheus.Summary
 }
@@ -659,7 +657,6 @@ func (y *yondu) initMetrics() {
 		CallBackTransIdError:     m.NewGauge(appName, telcoName, "callback_transid_error", "yondu callback cannot get record by transid"),
 		AddToDBErrors:            m.NewGauge(appName, telcoName, "add_to_db_errors", "subscription add to db errors"),
 		AddToDbSuccess:           m.NewGauge(appName, telcoName, "add_to_db_success", "subscription add to db success"),
-		SinceLastSuccessPay:      m.PrometheusGauge(appName, y.conf.OperatorName, "since_last_success_pay_seconds", "seconds since success pay"),
 		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
 		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
 	}
@@ -674,12 +671,6 @@ func (y *yondu) initMetrics() {
 			ym.CallBackTransIdError.Update()
 			ym.AddToDBErrors.Update()
 			ym.AddToDbSuccess.Update()
-		}
-	}()
-
-	go func() {
-		for range time.Tick(time.Second) {
-			ym.SinceLastSuccessPay.Inc()
 		}
 	}()
 
