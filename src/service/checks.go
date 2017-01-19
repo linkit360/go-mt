@@ -175,6 +175,7 @@ func processResponse(r *rec.Record) error {
 	}
 
 	if r.Paid {
+		SinceLastSuccessPay.Set(.0)
 		r.SubscriptionStatus = "paid"
 		if r.AttemptsCount >= 1 {
 			r.Result = "retry_paid"

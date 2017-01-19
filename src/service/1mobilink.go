@@ -321,17 +321,17 @@ func (mb *mobilink) initPrevSubscriptionsCache() {
 	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
 	mb.prevCache = cache.New(24*time.Hour, time.Minute)
 	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
+		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
 		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
 	}
 }
 func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
 	return found
 }
 func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
 	if !found {
 		mb.prevCache.Set(key, struct{}{}, 24*time.Hour)
@@ -357,7 +357,6 @@ type MobilinkMetrics struct {
 	ResponseSMSErrors        m.Gauge
 	ResponseSMSSuccess       m.Gauge
 	SinceRetryStartProcessed prometheus.Gauge
-	SinceLastSuccessPay      prometheus.Gauge
 }
 
 func (mb *mobilink) initMetrics() {
@@ -374,7 +373,6 @@ func (mb *mobilink) initMetrics() {
 		ResponseSMSErrors:        m.NewGauge(appName, mb.conf.OperatorName, "response_sms_errors", "errors"),
 		ResponseSMSSuccess:       m.NewGauge(appName, mb.conf.OperatorName, "response_sms_success", "success"),
 		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
-		SinceLastSuccessPay:      m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_success_pay_seconds", "seconds since success pay"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -394,7 +392,6 @@ func (mb *mobilink) initMetrics() {
 	go func() {
 		for range time.Tick(time.Second) {
 			mbm.SinceRetryStartProcessed.Inc()
-			mbm.SinceLastSuccessPay.Inc()
 		}
 	}()
 	mb.m = mbm
@@ -464,9 +461,6 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 func (mb *mobilink) handleResponse(r rec.Record) error {
 	if err := processResponse(&r); err != nil {
 		return err
-	}
-	if r.SubscriptionStatus == "paid" {
-		mb.m.SinceLastSuccessPay.Set(.0)
 	}
 	logCtx := log.WithFields(log.Fields{
 		"tid":    r.Tid,

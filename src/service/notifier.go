@@ -15,7 +15,7 @@ import (
 
 func startRetry(msg rec.Record) error {
 	if msg.TransactionOnly() {
-		return
+		return nil
 	}
 	return _notifyDBAction("StartRetry", msg)
 }
@@ -24,25 +24,25 @@ func addPostPaidNumber(msg rec.Record) error {
 }
 func touchRetry(msg rec.Record) error {
 	if msg.TransactionOnly() {
-		return
+		return nil
 	}
 	return _notifyDBAction("TouchRetry", msg)
 }
 func removeRetry(msg rec.Record) error {
 	if msg.TransactionOnly() {
-		return
+		return nil
 	}
 	return _notifyDBAction("RemoveRetry", msg)
 }
 func writeSubscriptionStatus(msg rec.Record) error {
 	if msg.TransactionOnly() {
-		return
+		return nil
 	}
 	return _notifyDBAction("WriteSubscriptionStatus", msg)
 }
 func writeSubscriptionPeriodic(msg rec.Record) error {
 	if msg.TransactionOnly() {
-		return
+		return nil
 	}
 	return _notifyDBAction("WriteSubscriptionPeriodic", msg)
 }

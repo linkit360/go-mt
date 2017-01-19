@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	SinceLastSuccessPay              prometheus.Gauge
 	RetryProcessDuration             prometheus.Summary
 	SetRetryPendingStatusDuration    prometheus.Summary
 	SetPeriodicPendingStatusDuration prometheus.Summary
@@ -41,6 +42,7 @@ func initMetrics(appName string) {
 	SetPendingStatusErrors = m.NewGauge(appName, "", "set_pending_status_errors", "set_pending status")
 	DelayHoursArentPassed = m.NewGauge(appName, "", "delay_hours_arent_passed", "delay_hours_arent_passed")
 	ContentdRPCDialError = m.NewGauge(appName, "contentd", "errors", "contentd errors")
+	SinceLastSuccessPay = m.PrometheusGauge(appName, "since", "last_success_pay_seconds", "seconds since success pay")
 
 	go func() {
 		for range time.Tick(time.Minute) {
