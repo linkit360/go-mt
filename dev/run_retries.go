@@ -28,7 +28,6 @@ func main() {
 	cfg := flag.String("config", "mt_manager.yml", "configuration yml file")
 	//count := flag.Int("count", 500, "count of retries")
 	flag.Parse()
-	m.Init("test")
 
 	var appConfig conf
 
