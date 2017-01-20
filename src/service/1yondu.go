@@ -62,6 +62,7 @@ type TextsConfig struct {
 
 type PeriodicConfig struct {
 	Enabled    bool `yaml:"enabled" default:"false"`
+	Period     int  `yaml:"period" default:"600"`
 	FetchLimit int  `yaml:"fetch_limit" default:"500"`
 }
 
@@ -128,7 +129,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 	if yConf.Periodic.Enabled {
 		go func() {
 			for {
-				time.Sleep(time.Second)
+				time.Sleep(time.Duration(yConf.Periodic.Period) * time.Second)
 				y.processPeriodic()
 			}
 		}()
@@ -164,7 +165,12 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 					"operator": yConf.OperatorName,
 					"waitFor":  yConf.Retries.QueueFreeSize,
 				}).Debug("achieve free queues size")
-				ProcessRetries(yConf.OperatorCode, yConf.Retries.FetchLimit, y.publishCharge)
+				ProcessRetries(
+					yConf.OperatorCode,
+					yConf.Retries.FetchLimit,
+					yConf.Retries.PaidOnceHours,
+					y.publishCharge,
+				)
 			}
 		}
 	}()

@@ -173,7 +173,12 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 				}
 				log.WithFields(log.Fields{}).Debug("achieve free queues")
 				mb.m.SinceRetryStartProcessed.Set(.0)
-				ProcessRetries(mbConfig.OperatorCode, mbConfig.Retries.FetchLimit, mb.publishToTelcoAPI)
+				ProcessRetries(
+					mbConfig.OperatorCode,
+					mbConfig.Retries.FetchLimit,
+					mbConfig.Retries.PaidOnceHours,
+					mb.publishToTelcoAPI,
+				)
 			} else {
 				log.Debug("retries disabled")
 			}

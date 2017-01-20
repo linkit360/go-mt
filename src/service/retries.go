@@ -18,9 +18,9 @@ type EventNotifyTarifficate struct {
 // get records from db
 // check them
 // and send to telco
-func ProcessRetries(operatorCode int64, retryCount int, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
+func ProcessRetries(operatorCode int64, retryCount int, paidOnceHours int, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
 	begin := time.Now()
-	retries, err := rec.GetRetryTransactions(operatorCode, retryCount)
+	retries, err := rec.GetRetryTransactions(operatorCode, retryCount, paidOnceHours)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"code":  operatorCode,
