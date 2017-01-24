@@ -35,6 +35,7 @@ type MobilinkConfig struct {
 	Enabled         bool                            `yaml:"enabled" default:"false"`
 	OperatorName    string                          `yaml:"operator_name" default:"mobilink"`
 	OperatorCode    int64                           `yaml:"operator_code" default:"41001"`
+	RejectedHours   int                             `yaml:"rejected_hours" default:"24"`
 	Retries         RetriesConfig                   `yaml:"retries"`
 	Periodic        PeriodicConfig                  `yaml:"periodic"`
 	Requests        string                          `yaml:"requests"`
@@ -319,12 +320,12 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 func (mb *mobilink) initPrevSubscriptionsCache() {
-	prev, err := rec.LoadActiveSubscriptions(mb.conf.OperatorCode, 24)
+	prev, err := rec.LoadActiveSubscriptions(mb.conf.OperatorCode, mb.conf.RejectedHours)
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
 	}
 	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
-	mb.prevCache = cache.New(24*time.Hour, time.Minute)
+	mb.prevCache = cache.New(time.Duration(mb.conf.RejectedHours)*time.Hour, time.Minute)
 	for _, v := range prev {
 		key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
 		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
@@ -339,7 +340,7 @@ func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
 	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
 	if !found {
-		mb.prevCache.Set(key, struct{}{}, 24*time.Hour)
+		mb.prevCache.Set(key, struct{}{}, time.Duration(mb.conf.RejectedHours)*time.Hour)
 		log.WithFields(log.Fields{
 			"tid": r.Tid,
 			"key": key,

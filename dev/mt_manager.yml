@@ -14,8 +14,9 @@ service:
     enabled: true
     operator_name: mobilink
     operator_code: 41001
+    rejected_hours: 720
     retries:
-      enabled: false
+      enabled: true
       period: 1
       paid_once_hours: 24
       queue_free_size: 3500
