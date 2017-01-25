@@ -251,13 +251,15 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		return
 	}
 	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
-		Msisdn:       r.Msisdn,
-		Tid:          r.Tid,
-		ServiceId:    r.ServiceId,
-		CampaignId:   r.CampaignId,
-		OperatorCode: r.OperatorCode,
-		CountryCode:  r.CountryCode,
+		Msisdn:         r.Msisdn,
+		Tid:            r.Tid,
+		ServiceId:      r.ServiceId,
+		CampaignId:     r.CampaignId,
+		OperatorCode:   r.OperatorCode,
+		CountryCode:    r.CountryCode,
+		SubscriptionId: r.SubscriptionId,
 	})
+
 	if contentProperties.Error != "" {
 		ContentdRPCDialError.Inc()
 		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
@@ -286,7 +288,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	}
 	logCtx.WithFields(log.Fields{
 		"text": r.SMSText,
-	}).Error("send text")
+	}).Info("send text")
 	return
 }
 
@@ -532,7 +534,9 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		y.deleteRecCache(r)
+		if r.Periodic {
+			y.deleteRecCache(r)
+		}
 		logCtx = log.WithFields(log.Fields{
 			"tid":    r.Tid,
 			"msisdn": r.Msisdn,
