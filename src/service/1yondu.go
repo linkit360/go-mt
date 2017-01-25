@@ -250,21 +250,6 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		}).Error("cannot get service by id")
 		return
 	}
-
-	// ========================================
-	y.setRecCache(r)
-	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate)
-	if err = y.publishMT(r); err != nil {
-		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
-		return
-	}
-	logCtx.WithFields(log.Fields{
-		"text": r.SMSText,
-	}).Error("send text")
-	return
-
-	// ========================================
-
 	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
 		Msisdn:       r.Msisdn,
 		Tid:          r.Tid,
@@ -804,7 +789,7 @@ func (y *yondu) getRecByTransId(operatorToken string) rec.Record {
 	recordJson, err := svc.ldb.Get(key, nil)
 	if err == leveldb.ErrNotFound {
 		log.WithFields(log.Fields{
-			"transid": operatorToken,
+			"key": key,
 		}).Debug("record not in transaction id cache")
 		r, err := rec.GetPeriodicSubscriptionByToken(operatorToken)
 		if err != nil || r.Tid == "" {

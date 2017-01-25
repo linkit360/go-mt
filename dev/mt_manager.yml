@@ -11,7 +11,7 @@ service:
     transaction_log: transaction_log
 
   mobilink:
-    enabled: true
+    enabled: false
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -52,7 +52,7 @@ service:
 
 
   yondu:
-    enabled: false
+    enabled: true
     operator_name: yondu
     operator_code: 51501
     content_url: http://dev.pk.linkit360.ru/u/
@@ -63,33 +63,33 @@ service:
       blacklisted: "Sorry, service not available."
       postpaid: "Sorry, service not available."
       unsubscribe: "You have been unsubscribed."
-#    periodic:
-#      enabled: false
-#      fetch_limit: 10
-#    retries:
-#      enabled: true
-#      period: 500
-#      fetch_limit: 2500
-#      paid_once_hours: 24
-#      queue_free_size: 3500
-#      check_queues_free:
-#      - "yondu_charge"
-#      - "mt_manager"
-#    unsubscribe:
-#      - off
-#    sent_consent: yondu_consent
-#    mt: yondu_mt
-#    charge: yondu_charge
-#    new:
-#      name: yondu_mo
-#      enabled: true
-#      prefetch_count: 10
-#      threads_count: 10
-#    callback:
-#      name: yondu_callback
-#      prefetch_count: 10
-#      enabled: true
-#      threads_count: 10
+    periodic:
+      enabled: false
+      fetch_limit: 10
+    retries:
+      enabled: true
+      period: 500
+      fetch_limit: 2500
+      paid_once_hours: 24
+      queue_free_size: 3500
+      check_queues_free:
+      - "yondu_charge"
+      - "mt_manager"
+    unsubscribe:
+      - off
+    sent_consent: yondu_consent
+    mt: yondu_mt
+    charge: yondu_charge
+    new:
+      name: yondu_mo
+      enabled: true
+      prefetch_count: 10
+      threads_count: 10
+    callback:
+      name: yondu_callback
+      prefetch_count: 10
+      enabled: true
+      threads_count: 10
 
 db:
   conn_ttl: -1

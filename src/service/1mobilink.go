@@ -17,6 +17,9 @@ import (
 	rec "github.com/vostrok/utils/rec"
 )
 
+// Mobilink telco handlers.
+// rejected rule configured in cofig (24h usually)
+
 type mobilink struct {
 	conf                 MobilinkConfig
 	m                    *MobilinkMetrics
@@ -46,6 +49,7 @@ type MobilinkConfig struct {
 	SMSResponses    queue_config.ConsumeQueueConfig `yaml:"sms_responses"`
 }
 
+// if it is disabled, do not even alloc memory
 func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *mobilink {
 	if !mbConfig.Enabled {
 		return nil
@@ -53,7 +57,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	mb := &mobilink{
 		conf: mbConfig,
 	}
-	mb.initPrevSubscriptionsCache()
+	mb.initActiveSubscriptionsCache()
 	mb.initMetrics()
 	if mbConfig.Requests == "" {
 		log.Fatal("empty queue name requests")
@@ -294,7 +298,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 		r = ns.EventData
-		if err = checkMO(&r, mb.getPrevSubscriptionCache, mb.setPrevSubscriptionCache); err != nil {
+		if err = checkMO(&r, mb.getActiveSubscriptionCache, mb.setActiveSubscriptionCache); err != nil {
 			msg.Nack(false, true)
 			continue
 		}
@@ -319,7 +323,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		}
 	}
 }
-func (mb *mobilink) initPrevSubscriptionsCache() {
+func (mb *mobilink) initActiveSubscriptionsCache() {
 	prev, err := rec.LoadActiveSubscriptions(mb.conf.OperatorCode, mb.conf.RejectedHours)
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
@@ -331,12 +335,12 @@ func (mb *mobilink) initPrevSubscriptionsCache() {
 		mb.prevCache.Set(key, struct{}{}, time.Now().Sub(v.CreatedAt))
 	}
 }
-func (mb *mobilink) getPrevSubscriptionCache(r rec.Record) bool {
+func (mb *mobilink) getActiveSubscriptionCache(r rec.Record) bool {
 	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
 	return found
 }
-func (mb *mobilink) setPrevSubscriptionCache(r rec.Record) {
+func (mb *mobilink) setActiveSubscriptionCache(r rec.Record) {
 	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
 	_, found := mb.prevCache.Get(key)
 	if !found {
@@ -433,7 +437,7 @@ func (mb *mobilink) publishToTelcoAPISMS(r rec.Record) (err error) {
 }
 
 // ============================================================
-// responses
+// handle responses
 func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var e EventNotifyTarifficate
