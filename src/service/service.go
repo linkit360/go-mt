@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/syndtr/goleveldb/leveldb"
 
 	content_client "github.com/vostrok/contentd/rpcclient"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -21,15 +20,13 @@ type MTService struct {
 	conf      MTServiceConfig
 	retriesWg map[int64]*sync.WaitGroup
 	notifier  *amqp.Notifier
-	ldb       *leveldb.DB
 	y         *yondu
 	mb        *mobilink
 }
 type MTServiceConfig struct {
-	LevelDBFilePath string         `yaml:"leveldb_file"`
-	Queues          QueuesConfig   `yaml:"queues"`
-	Mobilink        MobilinkConfig `yaml:"mobilink,omitempty"`
-	Yondu           YonduConfig    `yaml:"yondu,omitempty"`
+	Queues   QueuesConfig   `yaml:"queues"`
+	Mobilink MobilinkConfig `yaml:"mobilink,omitempty"`
+	Yondu    YonduConfig    `yaml:"yondu,omitempty"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
@@ -69,18 +66,11 @@ func Init(
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
 	initMetrics(appName)
 
-	var err error
-	svc.ldb, err = leveldb.OpenFile(serviceConf.LevelDBFilePath, nil)
-	if err != nil {
-		log.WithField("error", err.Error()).Fatal("cannot init leveldb")
-	}
-
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
 }
 
 func SaveState() {
 	log.WithField("pid", os.Getpid()).Info("save leveldb state")
-	svc.ldb.Close()
 	svc.notifier.SaveState()
 }

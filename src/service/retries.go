@@ -90,6 +90,7 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
 		return err
 	}
+
 	begin := time.Now()
 	if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
 		Errors.Inc()

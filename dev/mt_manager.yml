@@ -4,14 +4,13 @@ server:
   port: 50305
 
 service:
-  leveldb_file: /home/centos/linkit/mt_manager.ldb
   queues:
     pixels: pixels
     db_actions: mt_manager
     transaction_log: transaction_log
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -52,11 +51,13 @@ service:
 
 
   yondu:
-    enabled: true
+    enabled: false
     operator_name: yondu
     operator_code: 51501
-    content_url: http://dev.pk.linkit360.ru/u/
     charge_on_rejected: true
+    content:
+      send_enabled: false
+      url: http://dev.pk.linkit360.ru/u/
     texts:
       rejected: "You already subscribed on this service."
       rejected_charge: "You already subscribed on this service. Please find more games here: %s"
