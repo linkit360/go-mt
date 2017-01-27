@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	"database/sql"
 	content_client "github.com/vostrok/contentd/rpcclient"
 	content_service "github.com/vostrok/contentd/service"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -38,6 +39,7 @@ type YonduConfig struct {
 	Enabled            bool                            `yaml:"enabled" default:"false"`
 	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
 	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
+	CountryCode        int64                           `yaml:"country_code" default:"515"`
 	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
@@ -242,7 +244,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		"tid": r.Tid,
 	})
 	if !y.conf.Content.SendEnabled {
-		log.Info("send content disabled")
+		logCtx.Info("send content disabled")
 		return
 	}
 
@@ -330,10 +332,10 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			continue
 		}
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
-			Tid:              r.Tid,
-			Msisdn:           r.Msisdn,
-			OperatorToken:    r.OperatorToken,
-			OperatorCode:     r.OperatorCode,
+			Tid:              e.EventData.Tid,
+			Msisdn:           e.EventData.Params.Msisdn,
+			OperatorToken:    e.EventData.Params.TransID, // important, do not use from record - it's changed
+			OperatorCode:     y.conf.OperatorCode,
 			CountryCode:      r.CountryCode,
 			Error:            "",
 			Price:            r.Price,
@@ -347,10 +349,12 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
 		}
-
 		if err = publishTransactionLog("mo", transactionMsg); err != nil {
 			Errors.Inc()
-			logCtx.WithField("error", err.Error()).Error("publishTransactionLog")
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+				"data":  fmt.Sprintf("%#v", transactionMsg),
+			}).Error("publishTransactionLog")
 		}
 		for _, marker := range y.conf.UnsubscribeMarkers {
 			if strings.Contains(e.EventData.Params.KeyWord, marker) {
@@ -434,6 +438,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 	}
 }
+
 func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error) {
 	r := rec.Record{}
 	campaign, err := inmem_client.GetCampaignByKeyWord(req.Params.KeyWord)
@@ -473,6 +478,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 			"error":      err.Error(),
 		}).Error("cannot parse operators time")
 		sentAt = time.Now().UTC()
+		err = nil
 	}
 	r = rec.Record{
 		SentAt:                   sentAt,
@@ -489,13 +495,13 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		PaidHours:                svc.PaidHours,
 		KeepDays:                 svc.KeepDays,
 		Price:                    int(svc.Price),
-		OperatorToken:            req.Params.TransID,
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedFromHours: svc.PeriodicAllowedFrom,
 		PeriodicAllowedToHours:   svc.PeriodicAllowedTo,
 		SMSText:                  "OK",
 	}
+	r.OperatorToken = y.transId(req.Params.TransID, req.Params.Msisdn)
 	return r, nil
 }
 
@@ -511,6 +517,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		var r rec.Record
 		var err error
 		var logCtx *log.Entry
+		var begin time.Time
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
 		log.WithFields(log.Fields{
@@ -531,32 +538,20 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("failed")
 			goto ack
 		}
+
 		r, err = y.getRecordByCallback(e.EventData)
-		if err != nil {
-			goto ack
-		}
-		if e.EventData.Params.StatusCode == "0" {
-			r.Paid = true
-		}
-		if err = processResponse(&r); err != nil {
-			msg.Nack(false, true)
-			continue
-		}
-		if r.Periodic {
-			//
-		}
 		logCtx = log.WithFields(log.Fields{
 			"tid":    r.Tid,
-			"msisdn": r.Msisdn,
+			"msisdn": e.EventData.Params.Msisdn,
 		})
 
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
 			Tid:              r.Tid,
-			Msisdn:           r.Msisdn,
-			OperatorToken:    r.OperatorToken,
-			OperatorCode:     r.OperatorCode,
+			Msisdn:           e.EventData.Params.Msisdn,
+			OperatorToken:    e.EventData.Params.TransID,
+			OperatorCode:     y.conf.OperatorCode,
 			CountryCode:      r.CountryCode,
-			Error:            "",
+			Error:            r.OperatorErr,
 			Price:            r.Price,
 			ServiceId:        r.ServiceId,
 			SubscriptionId:   r.SubscriptionId,
@@ -568,11 +563,11 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
 		}
-		if err := publishTransactionLog("callback", transactionMsg); err != nil {
+		if transErr := publishTransactionLog("callback", transactionMsg); transErr != nil {
 			logCtx.WithFields(log.Fields{
 				"event":    e.EventName,
 				"callback": msg.Body,
-				"error":    err.Error(),
+				"error":    transErr.Error(),
 			}).Error("sent to transaction log failed")
 			msg.Nack(false, true)
 			continue
@@ -583,10 +578,25 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 				"tid":   r.Tid,
 			}).Info("sent to transaction log")
 		}
+		if err != nil {
+			goto ack
+		}
 
-	ack:
+	processResponse:
+		if err = processResponse(&r); err != nil {
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+				"sleep": 1,
+			}).Error("process response error")
+			time.Sleep(time.Second)
+			goto processResponse
+		}
+		if r.Periodic {
+			//
+		}
+
 		// is was pending
-		begin := time.Now()
+		begin = time.Now()
 		if err := rec.SetSubscriptionStatus("", r.SubscriptionId); err != nil {
 			Errors.Inc()
 			err = fmt.Errorf("rec.SetSubscriptionStatus: %s", err.Error())
@@ -597,6 +607,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 
+	ack:
 		if err := msg.Ack(false); err != nil {
 			logCtx.WithFields(log.Fields{
 				"callback": msg.Body,
@@ -609,19 +620,28 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec.Record, err error) {
+	defer func() {
+		if err != nil {
+			r.OperatorErr = err.Error()
+		}
+		if r.SentAt.IsZero() {
+			r.SentAt = time.Now().UTC()
+		}
+	}()
+
 	logCtx := log.WithFields(log.Fields{
-		"optoken": req.Params.TransID,
+		"otid": req.Params.TransID,
 	})
 	r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "pending")
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		err := fmt.Errorf("rec.GetRetryByMsisdn: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"error": err.Error(),
 		}).Error("cannot get from retries")
 		return rec.Record{}, err
 	}
-	if r.RetryId == 0 {
-		r, err = rec.GetSubscriptionByToken(req.Params.TransID)
+	if err == sql.ErrNoRows || r.RetryId == 0 {
+		r, err = rec.GetSubscriptionByToken(y.transId(req.Params.TransID, req.Params.Msisdn))
 		if err != nil {
 			err = fmt.Errorf("rec.GetPeriodicSubscriptionByToken: %s", err.Error())
 			logCtx.WithFields(log.Fields{
@@ -630,18 +650,31 @@ func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec
 			return rec.Record{}, err
 		}
 	}
+
 	if r.SubscriptionId == 0 {
 		y.m.CallBackTransIdError.Inc()
+
+		err = fmt.Errorf("CallBack not found %s", req.Params.TransID)
+		r.Tid = rec.GenerateTID()
+
 		logCtx.WithFields(log.Fields{
+			"tid":   r.Tid,
 			"error": err.Error(),
-		}).Error("record not found")
-		return rec.Record{}, err
+		}).Error("cann't process")
+		return r, err
+	}
+	if req.Params.StatusCode == "0" {
+		r.Paid = true
+		r.SubscriptionStatus = "paid" // for operator transaction log
+	} else {
+		r.SubscriptionStatus = "failed"
 	}
 	r.SentAt, err = time.Parse("20060102150405", req.Params.Timestamp)
 	if err != nil {
 		y.m.CallBackParseTimeError.Inc()
 
 		log.WithFields(log.Fields{
+			"tid":       r.Tid,
 			"error":     err.Error(),
 			"timestamp": req.Params.Timestamp,
 		}).Error("cannot parse callback time")
@@ -710,11 +743,11 @@ func (y *yondu) publishSentConsent(r rec.Record) error {
 	body, err := json.Marshal(event)
 	if err != nil {
 		NotifyErrors.Inc()
-
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 
 	svc.notifier.Publish(amqp.AMQPMessage{y.conf.SentConsent, 0, body})
+	log.WithField("tid", r.Tid).Debug("sent consent")
 	return nil
 }
 func (y *yondu) publishMT(r rec.Record) error {
@@ -799,7 +832,7 @@ func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
 	}).Debug("deleted from active subscriptions cache")
 }
 
-func (y *yondu) transId(r rec.Record) string {
-	token := strings.Replace(r.OperatorToken, "DMP", "KRE", 1)
-	return token[:7] + r.Msisdn[2:]
+func (y *yondu) transId(operatorToken, msisdn string) string {
+	token := strings.Replace(operatorToken, "DMP", "KRE", 1)
+	return token[:7] + msisdn[2:]
 }

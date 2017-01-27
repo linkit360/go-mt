@@ -10,7 +10,7 @@ service:
     transaction_log: transaction_log
 
   mobilink:
-    enabled: true
+    enabled: false
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -51,9 +51,10 @@ service:
 
 
   yondu:
-    enabled: false
+    enabled: true
     operator_name: yondu
     operator_code: 51501
+    country_code: 515
     charge_on_rejected: true
     content:
       send_enabled: false
