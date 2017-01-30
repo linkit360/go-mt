@@ -83,6 +83,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 	}
 	y := &yondu{
 		conf: yConf,
+		shedulledSubscriptions: &sync.WaitGroup{},
 	}
 	y.initMetrics()
 	y.initActiveSubscriptionsCache()
@@ -410,6 +411,11 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				Errors.Inc()
 				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 			}
+			begin := time.Now()
+			if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+				Errors.Inc()
+			}
+			SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 		} else {
 			if r.Result == "rejected" {
 				r.Periodic = false
@@ -604,7 +610,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	processResponse:
-		if err = processResponse(&r); err != nil {
+		if err = processResponse(&r, y.conf.Retries.Enabled); err != nil {
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 				"sleep": 1,
@@ -653,13 +659,15 @@ func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec
 	logCtx := log.WithFields(log.Fields{
 		"otid": req.Params.TransID,
 	})
-	r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "pending")
-	if err != nil && err != sql.ErrNoRows {
-		err := fmt.Errorf("rec.GetRetryByMsisdn: %s", err.Error())
-		logCtx.WithFields(log.Fields{
-			"error": err.Error(),
-		}).Error("cannot get from retries")
-		return rec.Record{}, err
+	if y.conf.Retries.Enabled {
+		r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "pending")
+		if err != nil && err != sql.ErrNoRows {
+			err := fmt.Errorf("rec.GetRetryByMsisdn: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Error("cannot get from retries")
+			return rec.Record{}, err
+		}
 	}
 	if err == sql.ErrNoRows || r.RetryId == 0 {
 		r, err = rec.GetSubscriptionByToken(y.transId(req.Params.TransID, req.Params.Msisdn))
@@ -869,7 +877,7 @@ func (y *yondu) processChargeShedulledSubscriptions() {
 		y.conf.PeriodicsCharge.DelayMinutes,
 		y.conf.PeriodicsCharge.FetchLimit)
 	if err != nil {
-
+		return
 	}
 	if len(periodics) == 0 {
 		return

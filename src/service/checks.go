@@ -118,7 +118,7 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 	return nil
 }
 
-func processResponse(r *rec.Record) error {
+func processResponse(r *rec.Record, retriesEnabled bool) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
@@ -219,10 +219,7 @@ func processResponse(r *rec.Record) error {
 	}
 
 	if r.AttemptsCount == 0 && r.SubscriptionStatus == "failed" {
-		logCtx.WithFields(log.Fields{
-			"action": "move to retry",
-		}).Debug("mo")
-		if err := startRetry(*r); err != nil {
+		if err := startRetry(*r, retriesEnabled); err != nil {
 			Errors.Inc()
 			return err
 		}

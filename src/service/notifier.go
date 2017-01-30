@@ -13,7 +13,10 @@ import (
 	rec "github.com/vostrok/utils/rec"
 )
 
-func startRetry(msg rec.Record) error {
+func startRetry(msg rec.Record, retriesEnabled bool) error {
+	if !retriesEnabled {
+		return nil
+	}
 	if msg.TransactionOnly() {
 		return nil
 	}

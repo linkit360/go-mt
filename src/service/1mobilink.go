@@ -469,7 +469,7 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 func (mb *mobilink) handleResponse(r rec.Record) error {
-	if err := processResponse(&r); err != nil {
+	if err := processResponse(&r, mb.conf.Retries.Enabled); err != nil {
 		return err
 	}
 	logCtx := log.WithFields(log.Fields{

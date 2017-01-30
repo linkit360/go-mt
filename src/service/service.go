@@ -34,7 +34,7 @@ type QueuesConfig struct {
 	TransactionLog string `default:"transaction_log" yaml:"transaction_log"`
 }
 type RetriesConfig struct {
-	Enabled         bool     `yaml:"enabled" default:"true"`
+	Enabled         bool     `yaml:"enabled"`
 	Period          int      `yaml:"period" default:"600"`
 	FetchLimit      int      `yaml:"fetch_limit" default:"2500"`
 	PaidOnceHours   int      `yaml:"paid_once_hours" default:"0"` // default must be 0
@@ -71,6 +71,6 @@ func Init(
 }
 
 func SaveState() {
-	log.WithField("pid", os.Getpid()).Info("save leveldb state")
+	log.WithField("pid", os.Getpid()).Info("save state")
 	svc.notifier.SaveState()
 }

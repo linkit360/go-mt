@@ -70,13 +70,13 @@ service:
       fetch_limit: 10
     subscription:
       enabled: true
-      delay_minutes: 15
+      delay_minutes: 1
       fetch_limit: 200
       priority: 0
     retries:
       enabled: false
-      period: 500
-      fetch_limit: 2500
+      period: 501
+      fetch_limit: 2501
       paid_once_hours: 24
       queue_free_size: 3500
       check_queues_free:
