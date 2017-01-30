@@ -68,8 +68,13 @@ service:
     periodic:
       enabled: false
       fetch_limit: 10
-    retries:
+    subscription:
       enabled: true
+      delay_minutes: 15
+      fetch_limit: 200
+      priority: 0
+    retries:
+      enabled: false
       period: 500
       fetch_limit: 2500
       paid_once_hours: 24

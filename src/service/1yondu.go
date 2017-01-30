@@ -25,14 +25,14 @@ import (
 )
 
 type yondu struct {
-	conf                YonduConfig
-	m                   *YonduMetrics
-	activeSubscriptions *activeSubscriptions
-	retriesWg           *sync.WaitGroup
-	MOCh                <-chan amqp_driver.Delivery
-	MOConsumer          *amqp.Consumer
-	CallBackCh          <-chan amqp_driver.Delivery
-	CallBackConsumer    *amqp.Consumer
+	conf                   YonduConfig
+	m                      *YonduMetrics
+	activeSubscriptions    *activeSubscriptions
+	shedulledSubscriptions *sync.WaitGroup
+	MOCh                   <-chan amqp_driver.Delivery
+	MOConsumer             *amqp.Consumer
+	CallBackCh             <-chan amqp_driver.Delivery
+	CallBackConsumer       *amqp.Consumer
 }
 
 type YonduConfig struct {
@@ -45,6 +45,7 @@ type YonduConfig struct {
 	Texts              TextsConfig                     `yaml:"texts"`
 	Periodic           PeriodicConfig                  `yaml:"periodic" `
 	Retries            RetriesConfig                   `yaml:"retries"`
+	PeriodicsCharge    SubscriptionChargeConfig        `yaml:"subscription"`
 	SentConsent        string                          `yaml:"sent_consent"`
 	MT                 string                          `yaml:"mt"`
 	Charge             string                          `yaml:"charge"`
@@ -52,7 +53,12 @@ type YonduConfig struct {
 	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
 }
-
+type SubscriptionChargeConfig struct {
+	Enabled      bool  `yaml:"enabled"`
+	DelayMinutes int   `yaml:"delay_minutes"`
+	FetchLimit   int   `yaml:"fetch_limit"`
+	Priority     uint8 `yaml:"priority"`
+}
 type ContentConfig struct {
 	SendEnabled bool   `yaml:"enabled"`
 	Url         string `yaml:"url"`
@@ -143,6 +149,16 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 	}
 
 	go func() {
+		if yConf.PeriodicsCharge.Enabled {
+			for range time.Tick(time.Second) {
+				begin := time.Now()
+				y.processChargeShedulledSubscriptions()
+				y.m.ProcessShedulledPeriodicsChargeDuration.Observe(time.Since(begin).Seconds())
+			}
+		}
+	}()
+
+	go func() {
 		if yConf.Retries.Enabled {
 		retries:
 			for range time.Tick(time.Duration(yConf.Retries.Period) * time.Second) {
@@ -215,6 +231,11 @@ func (y *yondu) processPeriodic() {
 		if err := y.charge(r, 1); err != nil {
 			Errors.Inc()
 		}
+		begin := time.Now()
+		if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+			return
+		}
+		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 	}
 	y.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
@@ -227,15 +248,10 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
 		return
 	}
-	begin := time.Now()
-	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-		return
-	}
-	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 	logCtx.WithFields(log.Fields{
 		"amount":   r.Price,
 		"priority": priority,
-	}).Error("charge")
+	}).Info("charge")
 	return
 }
 
@@ -409,6 +425,11 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 					if err := y.charge(r, 1); err != nil {
 						Errors.Inc()
 					}
+					begin := time.Now()
+					if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+						Errors.Inc()
+					}
+					SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 					goto ack
 				}
 				r.SMSText = y.conf.Texts.Rejected
@@ -687,33 +708,37 @@ func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec
 // ============================================================
 // metrics
 type YonduMetrics struct {
-	MODropped                m.Gauge
-	MOUnknownCampaign        m.Gauge
-	MOUnknownService         m.Gauge
-	MOParseTimeError         m.Gauge
-	CallBackDropped          m.Gauge
-	CallBackParseTimeError   m.Gauge
-	CallBackTransIdError     m.Gauge
-	AddToDBErrors            m.Gauge
-	AddToDbSuccess           m.Gauge
-	GetPeriodicsDuration     prometheus.Summary
-	ProcessPeriodicsDuration prometheus.Summary
+	MODropped                               m.Gauge
+	MOUnknownCampaign                       m.Gauge
+	MOUnknownService                        m.Gauge
+	MOParseTimeError                        m.Gauge
+	CallBackDropped                         m.Gauge
+	CallBackParseTimeError                  m.Gauge
+	CallBackTransIdError                    m.Gauge
+	AddToDBErrors                           m.Gauge
+	AddToDbSuccess                          m.Gauge
+	DelayMinitsArentPassed                  m.Gauge
+	GetPeriodicsDuration                    prometheus.Summary
+	ProcessPeriodicsDuration                prometheus.Summary
+	ProcessShedulledPeriodicsChargeDuration prometheus.Summary
 }
 
 func (y *yondu) initMetrics() {
 	telcoName := "yondu"
 	ym := &YonduMetrics{
-		MODropped:                m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
-		MOUnknownCampaign:        m.NewGauge(appName, telcoName, "mo_unknown_campaign", "yondu MO unknown campaign"),
-		MOUnknownService:         m.NewGauge(appName, telcoName, "mo_unknown_service", "yondu MO unknown service"),
-		MOParseTimeError:         m.NewGauge(appName, telcoName, "mo_parse_time_error", "yondu MO parse operators time error"),
-		CallBackDropped:          m.NewGauge(appName, telcoName, "callback_dropped", "yondu callback dropped"),
-		CallBackParseTimeError:   m.NewGauge(appName, telcoName, "callback_parse_time_error", "yondu callback parse operators time error"),
-		CallBackTransIdError:     m.NewGauge(appName, telcoName, "callback_transid_error", "yondu callback cannot get record by transid"),
-		AddToDBErrors:            m.NewGauge(appName, telcoName, "add_to_db_errors", "subscription add to db errors"),
-		AddToDbSuccess:           m.NewGauge(appName, telcoName, "add_to_db_success", "subscription add to db success"),
-		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
-		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
+		MODropped:                               m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
+		MOUnknownCampaign:                       m.NewGauge(appName, telcoName, "mo_unknown_campaign", "yondu MO unknown campaign"),
+		MOUnknownService:                        m.NewGauge(appName, telcoName, "mo_unknown_service", "yondu MO unknown service"),
+		MOParseTimeError:                        m.NewGauge(appName, telcoName, "mo_parse_time_error", "yondu MO parse operators time error"),
+		CallBackDropped:                         m.NewGauge(appName, telcoName, "callback_dropped", "yondu callback dropped"),
+		CallBackParseTimeError:                  m.NewGauge(appName, telcoName, "callback_parse_time_error", "yondu callback parse operators time error"),
+		CallBackTransIdError:                    m.NewGauge(appName, telcoName, "callback_transid_error", "yondu callback cannot get record by transid"),
+		AddToDBErrors:                           m.NewGauge(appName, telcoName, "add_to_db_errors", "subscription add to db errors"),
+		AddToDbSuccess:                          m.NewGauge(appName, telcoName, "add_to_db_success", "subscription add to db success"),
+		DelayMinitsArentPassed:                  m.NewGauge(appName, telcoName, "delay_minutes_not_passed", "delay minutes not passed"),
+		GetPeriodicsDuration:                    m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
+		ProcessPeriodicsDuration:                m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
+		ProcessShedulledPeriodicsChargeDuration: m.NewSummary("process_shedulled_periodics_charge_duration_seconds", "process shedulled periodics charge duration seconds"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -726,6 +751,7 @@ func (y *yondu) initMetrics() {
 			ym.CallBackTransIdError.Update()
 			ym.AddToDBErrors.Update()
 			ym.AddToDbSuccess.Update()
+			ym.DelayMinitsArentPassed.Update()
 		}
 	}()
 
@@ -835,4 +861,64 @@ func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
 func (y *yondu) transId(operatorToken, msisdn string) string {
 	token := strings.Replace(operatorToken, "DMP", "KRE", 1)
 	return token[:7] + msisdn[2:]
+}
+
+func (y *yondu) processChargeShedulledSubscriptions() {
+	periodics, err := rec.GetNotPaidPeriodics(
+		y.conf.OperatorCode,
+		y.conf.PeriodicsCharge.DelayMinutes,
+		y.conf.PeriodicsCharge.FetchLimit)
+	if err != nil {
+
+	}
+	if len(periodics) == 0 {
+		return
+	}
+	for _, r := range periodics {
+		y.shedulledSubscriptions.Add(1)
+		go y.hanlePeriodic(r, y.publishCharge)
+	}
+	y.shedulledSubscriptions.Wait()
+}
+
+func (y *yondu) hanlePeriodic(r rec.Record, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
+	defer y.shedulledSubscriptions.Done()
+	logCtx := log.WithFields(log.Fields{
+		"tid":            r.Tid,
+		"attempts_count": r.AttemptsCount,
+	})
+
+	sincePreviousAttempt := time.Now().Sub(r.LastPayAttemptAt).Minutes()
+	delayMinutes := (time.Duration(y.conf.PeriodicsCharge.DelayMinutes) * time.Minute).Minutes()
+	if sincePreviousAttempt < delayMinutes {
+		y.m.DelayMinitsArentPassed.Inc()
+
+		logCtx.WithFields(log.Fields{
+			"prev":   r.LastPayAttemptAt,
+			"now":    time.Now().UTC(),
+			"passed": sincePreviousAttempt,
+			"delay":  delayMinutes,
+		}).Debug("delay minutes were not passed")
+		return
+	}
+	logCtx.Debug("start processsing")
+	if err := checkBlackListedPostpaid(&r); err != nil {
+		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
+		return
+	}
+	begin := time.Now()
+	if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+		return
+	}
+	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
+	if err := notifyFnSendChargeRequest(y.conf.PeriodicsCharge.Priority, r); err != nil {
+		Errors.Inc()
+		NotifyErrors.Inc()
+
+		err = fmt.Errorf("notifyFnSendChargeRequest: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cannot send to queue")
+		return
+	}
+	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator")
 }
