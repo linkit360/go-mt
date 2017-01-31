@@ -44,6 +44,7 @@ type YonduConfig struct {
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
 	Periodic           PeriodicConfig                  `yaml:"periodic" `
+	RepeatConsent      RepeatConsentConfig             `yaml:"repeat_consent"`
 	Retries            RetriesConfig                   `yaml:"retries"`
 	PeriodicsCharge    SubscriptionChargeConfig        `yaml:"subscription"`
 	SentConsent        string                          `yaml:"sent_consent"`
@@ -62,6 +63,11 @@ type SubscriptionChargeConfig struct {
 type ContentConfig struct {
 	SendEnabled bool   `yaml:"enabled"`
 	Url         string `yaml:"url"`
+}
+type RepeatConsentConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	DelayMinites int  `yaml:"delay_minutes"`
+	FetchLimit   int  `yaml:"fetch_limit" default:"500"`
 }
 type TextsConfig struct {
 	Rejected       string `yaml:"rejected" default:"You already subscribed on this service"`
@@ -149,6 +155,16 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		log.Debug("periodic disabled")
 	}
 
+	if yConf.RepeatConsent.Enabled {
+		go func() {
+			for range time.Tick(time.Second) {
+				y.repeatSentConsent()
+			}
+		}()
+	} else {
+		log.Debug("repeat consent disabled")
+	}
+
 	go func() {
 		if yConf.PeriodicsCharge.Enabled {
 			for range time.Tick(time.Second) {
@@ -226,12 +242,15 @@ func (y *yondu) processPeriodic() {
 
 	begin = time.Now()
 	for _, r := range periodics {
+
 		if err := y.sentContent(r); err != nil {
 			Errors.Inc()
 		}
+
 		if err := y.charge(r, 1); err != nil {
 			Errors.Inc()
 		}
+
 		begin := time.Now()
 		if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
 			return
@@ -257,14 +276,13 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 }
 
 func (y *yondu) sentContent(r rec.Record) (err error) {
+	if y.conf.Content.SendEnabled {
+		log.Info("send content disabled")
+		return nil
+	}
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
-	if !y.conf.Content.SendEnabled {
-		logCtx.Info("send content disabled")
-		return
-	}
-
 	service, err := inmem_client.GetServiceById(r.ServiceId)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
@@ -404,6 +422,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			continue
 		}
 		if r.Result == "" {
+
 			if err := y.sentContent(r); err != nil {
 				Errors.Inc()
 			}
@@ -412,10 +431,11 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 			}
 			begin := time.Now()
-			if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-				Errors.Inc()
+			if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
+				return
 			}
 			SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 		} else {
 			if r.Result == "rejected" {
 				r.Periodic = false
@@ -929,4 +949,30 @@ func (y *yondu) hanlePeriodic(r rec.Record, notifyFnSendChargeRequest func(uint8
 		return
 	}
 	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator")
+}
+
+func (y *yondu) repeatSentConsent() {
+	records, err := rec.GetRepeatSentConsent(
+		y.conf.OperatorCode,
+		y.conf.RepeatConsent.DelayMinites,
+		y.conf.RepeatConsent.FetchLimit,
+	)
+	if err != nil {
+		return
+	}
+	for _, r := range records {
+		if err := y.publishSentConsent(r); err != nil {
+			Errors.Inc()
+			log.WithFields(log.Fields{
+				"tid":   r.Tid,
+				"error": err.Error(),
+			}).Error("publishYonduSentConsent")
+			continue
+		}
+		begin := time.Now()
+		if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
+			return
+		}
+		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	}
 }

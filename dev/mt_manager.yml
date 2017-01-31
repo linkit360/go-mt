@@ -73,6 +73,10 @@ service:
       delay_minutes: 1
       fetch_limit: 200
       priority: 0
+    repeat_consent:
+      enabled: true
+      delay_minutes: 10
+      fetch_limit: 40
     retries:
       enabled: false
       period: 501
