@@ -49,7 +49,6 @@ service:
     requests: mobilink_requests
     sms_requests: mobilink_requests
 
-
   yondu:
     enabled: true
     operator_name: yondu
@@ -101,6 +100,15 @@ service:
       prefetch_count: 10
       enabled: true
       threads_count: 10
+
+  cheese:
+    enabled: true
+    operator_name: cheese
+    country_code: 66
+    mcc: 520
+    dtac_mnc: 05
+    ais_mnc: 01
+    trueh_mnc: 03
 
 db:
   conn_ttl: -1

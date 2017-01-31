@@ -22,11 +22,13 @@ type MTService struct {
 	notifier  *amqp.Notifier
 	y         *yondu
 	mb        *mobilink
+	ch        *cheese
 }
 type MTServiceConfig struct {
 	Queues   QueuesConfig   `yaml:"queues"`
 	Mobilink MobilinkConfig `yaml:"mobilink,omitempty"`
 	Yondu    YonduConfig    `yaml:"yondu,omitempty"`
+	Cheese   CheeseConfig   `yaml:"cheese,omitempty"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
@@ -68,6 +70,7 @@ func Init(
 
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
+	svc.ch = initCheese(serviceConf.Cheese, consumerConfig)
 }
 
 func SaveState() {

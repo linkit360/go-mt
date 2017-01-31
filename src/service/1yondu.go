@@ -337,7 +337,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 
 // ============================================================
 // new subscritpion
-type EventNotifyMO struct {
+type YonduEventNotifyMO struct {
 	EventName string                     `json:"event_name,omitempty"`
 	EventData yondu_service.MOParameters `json:"event_data,omitempty"`
 }
@@ -349,7 +349,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
-		var e EventNotifyMO
+		var e YonduEventNotifyMO
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			y.m.MODropped.Inc()
 
@@ -961,6 +961,7 @@ func (y *yondu) repeatSentConsent() {
 		return
 	}
 	for _, r := range records {
+		r.Notice = "sent consent repeat"
 		if err := y.publishSentConsent(r); err != nil {
 			Errors.Inc()
 			log.WithFields(log.Fields{
