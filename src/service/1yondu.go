@@ -804,6 +804,7 @@ func (y *yondu) publishSentConsent(r rec.Record) error {
 	log.WithField("tid", r.Tid).Debug("sent consent")
 	return nil
 }
+
 func (y *yondu) publishMT(r rec.Record) error {
 	r.SentAt = time.Now().UTC()
 	event := amqp.EventNotify{

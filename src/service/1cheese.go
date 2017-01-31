@@ -114,7 +114,7 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("consume from " + ch.conf.NewSubscription.Name)
 			goto ack
 		}
-
+		r = e.EventData
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
 			Errors.Inc()
 			ch.m.AddToDBErrors.Inc()

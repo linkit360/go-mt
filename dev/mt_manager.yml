@@ -50,7 +50,7 @@ service:
     sms_requests: mobilink_requests
 
   yondu:
-    enabled: true
+    enabled: false
     operator_name: yondu
     operator_code: 51501
     country_code: 515
@@ -109,7 +109,11 @@ service:
     dtac_mnc: 05
     ais_mnc: 01
     trueh_mnc: 03
-
+    new:
+      name: cheese_mo
+      enabled: true
+      prefetch_count: 10
+      threads_count: 10
 db:
   conn_ttl: -1
   max_open_conns: 15
