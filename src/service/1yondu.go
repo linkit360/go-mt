@@ -47,12 +47,16 @@ type YonduConfig struct {
 	RepeatConsent      RepeatConsentConfig             `yaml:"repeat_consent"`
 	Retries            RetriesConfig                   `yaml:"retries"`
 	PeriodicsCharge    SubscriptionChargeConfig        `yaml:"subscription"`
-	SentConsent        string                          `yaml:"sent_consent"`
+	Consent            SentConsentConfig               `yaml:"consent"`
 	MT                 string                          `yaml:"mt"`
 	Charge             string                          `yaml:"charge"`
 	NewSubscription    queue_config.ConsumeQueueConfig `yaml:"new"`
 	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
+}
+type SentConsentConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Queue   string `yaml:"sent_consent"`
 }
 type SubscriptionChargeConfig struct {
 	Enabled      bool  `yaml:"enabled"`
@@ -789,6 +793,9 @@ func (y *yondu) initMetrics() {
 // ============================================================
 // notifier functions
 func (y *yondu) publishSentConsent(r rec.Record) error {
+	if !y.conf.Consent.Enabled {
+		return nil
+	}
 	r.SentAt = time.Now().UTC()
 	event := amqp.EventNotify{
 		EventName: "sent_consent",
@@ -800,7 +807,7 @@ func (y *yondu) publishSentConsent(r rec.Record) error {
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.SentConsent, 0, body})
+	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Consent.Queue, 0, body})
 	log.WithField("tid", r.Tid).Debug("sent consent")
 	return nil
 }

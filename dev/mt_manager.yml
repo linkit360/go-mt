@@ -87,7 +87,9 @@ service:
       - "mt_manager"
     unsubscribe:
       - off
-    sent_consent: yondu_consent
+    consent:
+     enabled: false
+     queue: yondu_consent
     mt: yondu_mt
     charge: yondu_charge
     new:
