@@ -72,10 +72,6 @@ service:
       delay_minutes: 1
       fetch_limit: 200
       priority: 0
-    repeat_consent:
-      enabled: true
-      delay_minutes: 10
-      fetch_limit: 40
     retries:
       enabled: false
       period: 501
@@ -90,6 +86,10 @@ service:
     consent:
      enabled: false
      queue: yondu_consent
+     repeat:
+       enabled: true
+       delay_minutes: 10
+       fetch_limit: 40
     mt: yondu_mt
     charge: yondu_charge
     new:

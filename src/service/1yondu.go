@@ -44,19 +44,25 @@ type YonduConfig struct {
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
 	Periodic           PeriodicConfig                  `yaml:"periodic" `
-	RepeatConsent      RepeatConsentConfig             `yaml:"repeat_consent"`
 	Retries            RetriesConfig                   `yaml:"retries"`
 	PeriodicsCharge    SubscriptionChargeConfig        `yaml:"subscription"`
-	Consent            SentConsentConfig               `yaml:"consent"`
+	Consent            ConsentConfig                   `yaml:"consent"`
 	MT                 string                          `yaml:"mt"`
 	Charge             string                          `yaml:"charge"`
 	NewSubscription    queue_config.ConsumeQueueConfig `yaml:"new"`
 	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
 }
-type SentConsentConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Queue   string `yaml:"sent_consent"`
+type ConsentConfig struct {
+	Enabled bool                `yaml:"enabled"`
+	Queue   string              `yaml:"sent_consent"`
+	Repeat  RepeatConsentConfig `yaml:"repeat"`
+}
+
+type RepeatConsentConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	DelayMinites int  `yaml:"delay_minutes"`
+	FetchLimit   int  `yaml:"fetch_limit" default:"500"`
 }
 type SubscriptionChargeConfig struct {
 	Enabled      bool  `yaml:"enabled"`
@@ -67,11 +73,6 @@ type SubscriptionChargeConfig struct {
 type ContentConfig struct {
 	SendEnabled bool   `yaml:"enabled"`
 	Url         string `yaml:"url"`
-}
-type RepeatConsentConfig struct {
-	Enabled      bool `yaml:"enabled"`
-	DelayMinites int  `yaml:"delay_minutes"`
-	FetchLimit   int  `yaml:"fetch_limit" default:"500"`
 }
 type TextsConfig struct {
 	Rejected       string `yaml:"rejected" default:"You already subscribed on this service"`
@@ -159,7 +160,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		log.Debug("periodic disabled")
 	}
 
-	if yConf.RepeatConsent.Enabled {
+	if yConf.Consent.Enabled && yConf.Consent.Repeat.Enabled {
 		go func() {
 			for range time.Tick(time.Second) {
 				y.repeatSentConsent()
@@ -430,16 +431,27 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			if err := y.sentContent(r); err != nil {
 				Errors.Inc()
 			}
-			if err := y.publishSentConsent(r); err != nil {
-				Errors.Inc()
-				logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
-			}
-			begin := time.Now()
-			if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
-				return
-			}
-			SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+			if y.conf.Consent.Enabled {
+				if err := y.publishSentConsent(r); err != nil {
+					Errors.Inc()
+					logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
+				}
+				begin := time.Now()
+				if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
+					return
+				}
+				SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+			} else {
+				if err := y.charge(r, 1); err != nil {
+					Errors.Inc()
+				}
 
+				begin := time.Now()
+				if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+					Errors.Inc()
+				}
+				SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+			}
 		} else {
 			if r.Result == "rejected" {
 				r.Periodic = false
@@ -962,8 +974,8 @@ func (y *yondu) hanlePeriodic(r rec.Record, notifyFnSendChargeRequest func(uint8
 func (y *yondu) repeatSentConsent() {
 	records, err := rec.GetRepeatSentConsent(
 		y.conf.OperatorCode,
-		y.conf.RepeatConsent.DelayMinites,
-		y.conf.RepeatConsent.FetchLimit,
+		y.conf.Consent.Repeat.DelayMinites,
+		y.conf.Consent.Repeat.FetchLimit,
 	)
 	if err != nil {
 		return
