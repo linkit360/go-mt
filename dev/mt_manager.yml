@@ -10,12 +10,12 @@ service:
     transaction_log: transaction_log
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
     retries:
-      enabled: true
+      enabled: false
       period: 1
       paid_once_hours: 24
       queue_free_size: 3500
@@ -104,7 +104,7 @@ service:
       threads_count: 10
 
   cheese:
-    enabled: true
+    enabled: false
     operator_name: cheese
     country_code: 66
     mcc: 520
@@ -116,6 +116,7 @@ service:
       enabled: true
       prefetch_count: 10
       threads_count: 10
+
 db:
   conn_ttl: -1
   max_open_conns: 15

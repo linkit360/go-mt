@@ -856,7 +856,7 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 }
 
 // ============================================================
-// go-cache inmemory cache for incoming mo subscriptions
+// inmemory cache for incoming mo subscriptions
 type activeSubscriptions struct {
 	byKey map[string]struct{}
 }

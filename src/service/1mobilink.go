@@ -184,8 +184,6 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 					mbConfig.Retries.PaidOnceHours,
 					mb.publishToTelcoAPI,
 				)
-			} else {
-				log.Debug("retries disabled")
 			}
 		}
 	}()
