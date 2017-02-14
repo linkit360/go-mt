@@ -23,12 +23,14 @@ type MTService struct {
 	y         *yondu
 	mb        *mobilink
 	ch        *cheese
+	qr        *qrtech
 }
 type MTServiceConfig struct {
 	Queues   QueuesConfig   `yaml:"queues"`
 	Mobilink MobilinkConfig `yaml:"mobilink,omitempty"`
 	Yondu    YonduConfig    `yaml:"yondu,omitempty"`
 	Cheese   CheeseConfig   `yaml:"cheese,omitempty"`
+	QRTech   QRTechConfig   `yaml:"qrtech,omitempty"`
 }
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
@@ -71,6 +73,7 @@ func Init(
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
 	svc.ch = initCheese(serviceConf.Cheese, consumerConfig)
+	svc.qr = initQRTech(serviceConf.QRTech, consumerConfig)
 }
 
 func SaveState() {
