@@ -231,10 +231,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 func (y *yondu) processPeriodic() {
 
 	begin := time.Now()
-	periodics, err := rec.GetPeriodics(
-		y.conf.OperatorCode,
-		y.conf.Periodic.FetchLimit,
-	)
+	periodics, err := rec.GetPeriodics(y.conf.Periodic.FetchLimit)
 	if err != nil {
 		err = fmt.Errorf("rec.GetPeriodics: %s", err.Error())
 		log.WithFields(log.Fields{
@@ -911,11 +908,13 @@ func (y *yondu) transId(operatorToken, msisdn string) string {
 	return token[:7] + msisdn[2:]
 }
 
+// if it wasn't paid the day we send content,
+// try to charge same day after some delay
 func (y *yondu) processChargeShedulledSubscriptions() {
 	periodics, err := rec.GetNotPaidPeriodics(
-		y.conf.OperatorCode,
 		y.conf.PeriodicsCharge.DelayMinutes,
-		y.conf.PeriodicsCharge.FetchLimit)
+		y.conf.PeriodicsCharge.FetchLimit,
+	)
 	if err != nil {
 		return
 	}
