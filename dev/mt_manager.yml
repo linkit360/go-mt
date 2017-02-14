@@ -117,6 +117,21 @@ service:
       prefetch_count: 10
       threads_count: 10
 
+  qrtech:
+    enabled: true
+    operator_name: qrtech
+    country_code: 66
+    mcc: 520
+    dtac_mnc: 05
+    ais_mnc: 01
+    trueh_mnc: 03
+    charge: qrtech_mt
+    new:
+      name: qrtech_mo
+      enabled: true
+      prefetch_count: 10
+      threads_count: 10
+
 db:
   conn_ttl: -1
   max_open_conns: 15
