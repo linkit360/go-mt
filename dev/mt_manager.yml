@@ -131,6 +131,11 @@ service:
       enabled: true
       prefetch_count: 10
       threads_count: 10
+    dn:
+      name: qrtech_dn
+      enabled: true
+      prefetch_count: 10
+      threads_count: 10
 
 db:
   conn_ttl: -1
