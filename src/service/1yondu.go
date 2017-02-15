@@ -27,6 +27,7 @@ import (
 type yondu struct {
 	conf                   YonduConfig
 	m                      *YonduMetrics
+	loc                    *time.Location
 	activeSubscriptions    *activeSubscriptions
 	shedulledSubscriptions *sync.WaitGroup
 	MOCh                   <-chan amqp_driver.Delivery
@@ -40,6 +41,7 @@ type YonduConfig struct {
 	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
 	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
 	CountryCode        int64                           `yaml:"country_code" default:"515"`
+	Location           string                          `yaml:"location"`
 	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
@@ -83,9 +85,11 @@ type TextsConfig struct {
 }
 
 type PeriodicConfig struct {
-	Enabled    bool `yaml:"enabled" default:"false"`
-	Period     int  `yaml:"period" default:"600"`
-	FetchLimit int  `yaml:"fetch_limit" default:"500"`
+	Enabled               bool   `yaml:"enabled" default:"false"`
+	Period                int    `yaml:"period" default:"600"`
+	IntervalType          string `yaml:"interval_type" default:"hour"`
+	FailedRepeatInMinutes int    `yaml:"failed_repeat_in_minutes" default:"60"`
+	FetchLimit            int    `yaml:"fetch_limit" default:"500"`
 }
 
 func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentConf content_client.RPCClientConfig) *yondu {
@@ -98,6 +102,15 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 	}
 	y.initMetrics()
 	y.initActiveSubscriptionsCache()
+
+	var err error
+	y.loc, err = time.LoadLocation(yConf.Location)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"location": yConf.Location,
+			"error":    err,
+		}).Fatal("location")
+	}
 
 	content_client.Init(contentConf)
 
@@ -231,7 +244,12 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 func (y *yondu) processPeriodic() {
 
 	begin := time.Now()
-	periodics, err := rec.GetPeriodics(y.conf.Periodic.FetchLimit)
+	periodics, err := rec.GetPeriodics(
+		y.conf.Periodic.FetchLimit,
+		y.conf.Periodic.FailedRepeatInMinutes,
+		y.conf.Periodic.IntervalType,
+		y.loc,
+	)
 	if err != nil {
 		err = fmt.Errorf("rec.GetPeriodics: %s", err.Error())
 		log.WithFields(log.Fields{
@@ -855,21 +873,21 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 // ============================================================
 // inmemory cache for incoming mo subscriptions
 type activeSubscriptions struct {
-	byKey map[string]struct{}
+	byKey map[string]int64
 }
 
 func (y *yondu) initActiveSubscriptionsCache() {
 	// load all active subscriptions
-	prev, err := rec.LoadActiveSubscriptions(y.conf.OperatorCode, 0)
+	prev, err := rec.LoadActiveSubscriptions(0)
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}
 	y.activeSubscriptions = &activeSubscriptions{
-		byKey: make(map[string]struct{}),
+		byKey: make(map[string]int64),
 	}
 	for _, v := range prev {
 		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
-		y.activeSubscriptions.byKey[key] = struct{}{}
+		y.activeSubscriptions.byKey[key] = v.Id
 	}
 }
 func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
@@ -887,7 +905,7 @@ func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
 	if _, found := y.activeSubscriptions.byKey[key]; found {
 		return
 	}
-	y.activeSubscriptions.byKey[key] = struct{}{}
+	y.activeSubscriptions.byKey[key] = r.SubscriptionId
 	log.WithFields(log.Fields{
 		"tid": r.Tid,
 		"key": key,

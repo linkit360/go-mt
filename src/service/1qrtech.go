@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	"database/sql"
 	"github.com/vostrok/utils/amqp"
 	queue_config "github.com/vostrok/utils/config"
 	m "github.com/vostrok/utils/metrics"
@@ -19,6 +21,7 @@ import (
 type qrtech struct {
 	conf                   QRTechConfig
 	m                      *QRTechMetrics
+	loc                    *time.Location
 	activeSubscriptions    *activeSubscriptions
 	shedulledSubscriptions *sync.WaitGroup
 	MOCh                   <-chan amqp_driver.Delivery
@@ -35,6 +38,7 @@ type QRTechConfig struct {
 	TruehMNC        string                          `yaml:"trueh_mnc" `
 	MCC             string                          `yaml:"mcc"`
 	CountryCode     int64                           `yaml:"country_code" default:"66"`
+	Location        string                          `yaml:"location"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	DN              queue_config.ConsumeQueueConfig `yaml:"dn"`
 	Charge          string                          `yaml:"charge" default:"qrtech_mt"`
@@ -51,8 +55,17 @@ func initQRTech(
 	qr := &qrtech{
 		conf: qrTechConf,
 	}
+	var err error
+	qr.loc, err = time.LoadLocation(qrTechConf.Location)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"location": qrTechConf.Location,
+			"error":    err,
+		}).Fatal("location")
+	}
 
 	qr.initMetrics()
+	qr.initActiveSubscriptionsCache()
 
 	if qrTechConf.NewSubscription.Enabled {
 		if qrTechConf.NewSubscription.Name == "" {
@@ -163,29 +176,51 @@ type QRTechEventNotifyMO struct {
 	EventData rec.Record `json:"event_data,omitempty"`
 }
 
-func (qrTech *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
+func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
+		var now time.Time
+		var interval int
 
 		var e QRTechEventNotifyMO
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			qrTech.m.MODropped.Inc()
+			qr.m.MODropped.Inc()
 
 			log.WithFields(log.Fields{
 				"error": err.Error(),
 				"msg":   "dropped",
 				"mo":    string(msg.Body),
-			}).Error("consume from " + qrTech.conf.NewSubscription.Name)
+			}).Error("consume from " + qr.conf.NewSubscription.Name)
 			goto ack
 		}
 		r = e.EventData
 		if err := rec.AddNewSubscriptionToDB(&r); err != nil {
 			Errors.Inc()
-			qrTech.m.AddToDBErrors.Inc()
+			qr.m.AddToDBErrors.Inc()
 			msg.Nack(false, true)
 			continue
 		} else {
-			qrTech.m.AddToDbSuccess.Inc()
+			qr.m.AddToDbSuccess.Inc()
+		}
+
+		now = time.Now().In(qr.loc)
+		interval = 60*now.Hour() + now.Minute()
+		if r.PeriodicAllowedFromHours < interval && r.PeriodicAllowedToHours >= interval {
+			if err := qr.publishCharge(1, r); err != nil {
+				Errors.Inc()
+			}
+			setStatusBegin := time.Now()
+			if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+				goto ack
+			}
+			SetPeriodicPendingStatusDuration.Observe(time.Since(setStatusBegin).Seconds())
+			qr.setActiveSubscriptionCache(r)
+		} else {
+			log.WithFields(log.Fields{
+				"interval": interval,
+				"from":     r.PeriodicAllowedFromHours,
+				"to":       r.PeriodicAllowedToHours,
+			}).Info("is not in time range")
 		}
 
 	ack:
@@ -206,7 +241,12 @@ func (qrTech *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 func (qr *qrtech) processPeriodic() {
 
 	begin := time.Now()
-	periodics, err := rec.GetPeriodics(qr.conf.Periodic.FetchLimit)
+	periodics, err := rec.GetPeriodics(
+		qr.conf.Periodic.FetchLimit,
+		qr.conf.Periodic.FailedRepeatInMinutes,
+		qr.conf.Periodic.IntervalType,
+		qr.loc,
+	)
 	if err != nil {
 		err = fmt.Errorf("rec.GetPeriodics: %s", err.Error())
 		log.WithFields(log.Fields{
@@ -222,6 +262,7 @@ func (qr *qrtech) processPeriodic() {
 		if err := qr.publishCharge(1, r); err != nil {
 			Errors.Inc()
 		}
+		qr.setActiveSubscriptionCache(r)
 		setStatusBegin := time.Now()
 		if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
 			return
@@ -258,7 +299,8 @@ type QRTechEventNotifyDN struct {
 func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
-
+		var err error
+		var subscriptionId int64
 		var e QRTechEventNotifyDN
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			qrTech.m.DNDropped.Inc()
@@ -266,11 +308,32 @@ func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 			log.WithFields(log.Fields{
 				"error": err.Error(),
 				"msg":   "dropped",
-				"mo":    string(msg.Body),
+				"dn":    string(msg.Body),
 			}).Error("consume from " + qrTech.conf.DN.Name)
 			goto ack
 		}
 		r = e.EventData
+
+		subscriptionId, err = qrTech.getActiveSubscriptionCache(r)
+		if err != nil {
+			msg.Nack(false, true)
+			log.WithFields(log.Fields{
+				"msg": "requeue",
+			}).Error("consume from " + qrTech.conf.DN.Name)
+			continue
+		}
+		if subscriptionId == 0 {
+			qrTech.m.DNDropped.Inc()
+
+			log.WithFields(log.Fields{
+				"error": "not found",
+				"msg":   "dropped",
+				"dn":    string(msg.Body),
+			}).Error("consume from " + qrTech.conf.DN.Name)
+			goto ack
+		}
+		r.SubscriptionId = subscriptionId
+
 		if err := processResponse(&r, false); err != nil {
 			qrTech.m.DNErrors.Inc()
 			msg.Nack(false, true)
@@ -280,7 +343,7 @@ func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{
-				"mo":    msg.Body,
+				"dn":    msg.Body,
 				"error": err.Error(),
 			}).Error("cannot ack")
 			time.Sleep(time.Second)
@@ -288,4 +351,57 @@ func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	}
+}
+
+// ============================================================
+// active subscriptions cache to store subscription id for dn
+
+func (qr *qrtech) initActiveSubscriptionsCache() {
+	// load all active subscriptions
+	prev, err := rec.LoadActiveSubscriptions(0)
+	if err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
+	}
+	qr.activeSubscriptions = &activeSubscriptions{
+		byKey: make(map[string]int64),
+	}
+	for _, v := range prev {
+		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
+		qr.activeSubscriptions.byKey[key] = v.Id
+	}
+}
+func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (int64, error) {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	sid, found := qr.activeSubscriptions.byKey[key]
+	if !found {
+		oldRec, err := rec.GetSubscriptionByMsisdn(r.Msisdn)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return 0, nil
+			}
+			return 0, err
+		}
+		return oldRec.SubscriptionId, nil
+	}
+	return sid, nil
+}
+func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	if _, found := qr.activeSubscriptions.byKey[key]; found {
+		return
+	}
+	qr.activeSubscriptions.byKey[key] = r.SubscriptionId
+	log.WithFields(log.Fields{
+		"tid": r.Tid,
+		"key": key,
+	}).Debug("set active subscriptions cache")
+}
+
+func (qr *qrtech) deleteActiveSubscriptionCache(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	delete(qr.activeSubscriptions.byKey, key)
+	log.WithFields(log.Fields{
+		"tid": r.Tid,
+		"key": key,
+	}).Debug("deleted from active subscriptions cache")
 }
