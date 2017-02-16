@@ -1,5 +1,10 @@
 .PHONY: dev run build senddev sendprod
 
+VERSION=$(shell git describe --always --long --dirty)
+
+version:
+	 @echo Version IS $(VERSION)
+
 dev:
 	rm ./mt_manager; go build ; \
 	export MOBILINK_RESPONSE_LOG=response.log; \
@@ -11,14 +16,13 @@ run:
   export MOBILINK_REQUEST_LOG=response.log; \
   ./mt_manager
 
+rm:
+	rm bin/mt_manager-linux-amd64; rm ~/linkit/mt_manager-linux-amd64
+
 build:
 	export GOOS=linux; export GOARCH=amd64; \
-  go build -ldflags "-s -w" -o bin/mt_manager-linux-amd64
-
-pending:
-	go build -ldflags "-s -w" pending_retries_parse_log.go;
-	scp -i ~/.ssh/mobilink_centos.pem pending_retries_parse_log centos@52.66.23.201:/home/centos/linkit/pending_retries_parse_log
-
+	sed -i "s/%VERSION%/$(VERSION)/g" /home/centos/vostrok/utils/metrics/metrics.go; \
+  go build -ldflags "-s -w" -o bin/mt_manager-linux-amd64 ; cp bin/mt_manager-linux-amd64 ~/linkit; cp dev/mt_manager.yml  ~/linkit/;
 
 metrics:
 	curl http://localhost:50305/debug/vars

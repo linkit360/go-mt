@@ -32,6 +32,7 @@ type MTServiceConfig struct {
 	Cheese   CheeseConfig   `yaml:"cheese,omitempty"`
 	QRTech   QRTechConfig   `yaml:"qrtech,omitempty"`
 }
+
 type QueuesConfig struct {
 	Pixels         string `default:"pixels" yaml:"pixels"`
 	DBActions      string `default:"mt_manager" yaml:"db_actions"`

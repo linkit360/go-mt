@@ -3,6 +3,14 @@ app_name: mt_manager
 server:
   port: 50305
 
+inmem_client:
+  dsn: 50307
+  timeout: 10
+
+content_client:
+  dsn: 50302
+  timeout: 10
+
 service:
   queues:
     pixels: pixels
@@ -130,7 +138,7 @@ service:
     trueh_mnc: 03
     location: Asia/Bangkok
     periodic:
-      enabled: true
+      enabled: false
       fetch_limit: 10
       period: 10
       interval_type: min
