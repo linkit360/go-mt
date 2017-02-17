@@ -223,6 +223,10 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}).Info("is not in time range")
 		}
 
+		if err := notifyRestorePixel(r); err != nil {
+			Errors.Inc()
+		}
+
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{

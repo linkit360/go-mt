@@ -4,11 +4,11 @@ server:
   port: 50305
 
 inmem_client:
-  dsn: 50307
+  dsn: :50307
   timeout: 10
 
 content_client:
-  dsn: 50302
+  dsn: :50302
   timeout: 10
 
 service:
@@ -115,7 +115,7 @@ service:
       threads_count: 10
 
   cheese:
-    enabled: false
+    enabled: true
     operator_name: cheese
     country_code: 66
     mcc: 520
@@ -129,7 +129,7 @@ service:
       threads_count: 10
 
   qrtech:
-    enabled: true
+    enabled: false
     operator_name: qrtech
     country_code: 66
     mcc: 520

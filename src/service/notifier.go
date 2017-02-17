@@ -143,6 +143,47 @@ func notifyPixel(r rec.Record) (err error) {
 	return nil
 }
 
+func notifyRestorePixel(r rec.Record) (err error) {
+	msg := pixels.Pixel{
+		Tid:            r.Tid,
+		Msisdn:         r.Msisdn,
+		CampaignId:     r.CampaignId,
+		SubscriptionId: r.SubscriptionId,
+		OperatorCode:   r.OperatorCode,
+		CountryCode:    r.CountryCode,
+		Pixel:          r.Pixel,
+		Publisher:      r.Publisher,
+	}
+
+	defer func() {
+		fields := log.Fields{
+			"tid": msg.Tid,
+			"q":   svc.conf.Queues.RestorePixels,
+		}
+		if err != nil {
+			NotifyErrors.Inc()
+
+			fields["errors"] = err.Error()
+			fields["pixel"] = fmt.Sprintf("%#v", msg)
+			log.WithFields(fields).Error("cannot enqueue")
+		} else {
+			log.WithFields(fields).Debug("sent")
+		}
+	}()
+	eventName := "pixels"
+	event := amqp.EventNotify{
+		EventName: eventName,
+		EventData: msg,
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		err = fmt.Errorf("json.Marshal: %s", err.Error())
+		return err
+	}
+	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.RestorePixels, uint8(0), body})
+	return nil
+}
+
 func publishTransactionLog(eventName string,
 	transactionMsg transaction_log_service.OperatorTransactionLog) error {
 	transactionMsg.SentAt = time.Now().UTC()
