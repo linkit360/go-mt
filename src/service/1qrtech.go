@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -41,8 +40,6 @@ type QRTechConfig struct {
 	Location        string                          `yaml:"location"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	DN              queue_config.ConsumeQueueConfig `yaml:"dn"`
-	Charge          string                          `yaml:"charge" default:"qrtech_mt"`
-	Periodic        PeriodicConfig                  `yaml:"periodic"`
 }
 
 func initQRTech(
@@ -114,18 +111,6 @@ func initQRTech(
 	} else {
 		log.Debug("dn queue disabled")
 	}
-
-	if qrTechConf.Periodic.Enabled {
-		go func() {
-			for {
-				time.Sleep(time.Duration(qrTechConf.Periodic.Period) * time.Second)
-				qr.processPeriodic()
-			}
-		}()
-	} else {
-		log.Debug("periodic disabled")
-	}
-
 	return qr
 }
 
@@ -179,8 +164,6 @@ type QRTechEventNotifyMO struct {
 func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
-		var now time.Time
-		var interval int
 
 		var e QRTechEventNotifyMO
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
@@ -202,26 +185,7 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 		} else {
 			qr.m.AddToDbSuccess.Inc()
 		}
-
-		now = time.Now().In(qr.loc)
-		interval = 60*now.Hour() + now.Minute()
-		if r.PeriodicAllowedFromHours < interval && r.PeriodicAllowedToHours >= interval {
-			if err := qr.publishCharge(1, r); err != nil {
-				Errors.Inc()
-			}
-			setStatusBegin := time.Now()
-			if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-				goto ack
-			}
-			SetPeriodicPendingStatusDuration.Observe(time.Since(setStatusBegin).Seconds())
-			qr.setActiveSubscriptionCache(r)
-		} else {
-			log.WithFields(log.Fields{
-				"interval": interval,
-				"from":     r.PeriodicAllowedFromHours,
-				"to":       r.PeriodicAllowedToHours,
-			}).Info("is not in time range")
-		}
+		qr.setActiveSubscriptionCache(r)
 
 		if err := notifyRestorePixel(r); err != nil {
 			Errors.Inc()
@@ -238,58 +202,6 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	}
-}
-
-// ============================================================
-// periodics
-func (qr *qrtech) processPeriodic() {
-
-	begin := time.Now()
-	periodics, err := rec.GetPeriodics(
-		qr.conf.Periodic.FetchLimit,
-		qr.conf.Periodic.FailedRepeatInMinutes,
-		qr.conf.Periodic.IntervalType,
-		qr.loc,
-	)
-	if err != nil {
-		err = fmt.Errorf("rec.GetPeriodics: %s", err.Error())
-		log.WithFields(log.Fields{
-			"error": err.Error(),
-		}).Error("cannot get periodics")
-		return
-	}
-
-	qr.m.GetPeriodicsDuration.Observe(time.Since(begin).Seconds())
-
-	begin = time.Now()
-	for _, r := range periodics {
-		if err := qr.publishCharge(1, r); err != nil {
-			Errors.Inc()
-		}
-		qr.setActiveSubscriptionCache(r)
-		setStatusBegin := time.Now()
-		if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-			return
-		}
-		SetPeriodicPendingStatusDuration.Observe(time.Since(setStatusBegin).Seconds())
-	}
-	qr.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
-}
-
-func (qr *qrtech) publishCharge(priority uint8, r rec.Record) error {
-	r.SentAt = time.Now().UTC()
-	event := amqp.EventNotify{
-		EventName: "charge",
-		EventData: r,
-	}
-	body, err := json.Marshal(event)
-	if err != nil {
-		NotifyErrors.Inc()
-
-		return fmt.Errorf("json.Marshal: %s", err.Error())
-	}
-	svc.notifier.Publish(amqp.AMQPMessage{qr.conf.Charge, priority, body, event.EventName})
-	return nil
 }
 
 // ============================================================
