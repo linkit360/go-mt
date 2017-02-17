@@ -834,7 +834,7 @@ func (y *yondu) publishSentConsent(r rec.Record) error {
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
 
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Consent.Queue, 0, body})
+	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Consent.Queue, 0, body, event.EventName})
 	log.WithField("tid", r.Tid).Debug("sent consent")
 	return nil
 }
@@ -851,7 +851,7 @@ func (y *yondu) publishMT(r rec.Record) error {
 
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.MT, 0, body})
+	svc.notifier.Publish(amqp.AMQPMessage{y.conf.MT, 0, body, event.EventName})
 	return nil
 }
 func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
@@ -866,7 +866,7 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Charge, priority, body})
+	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Charge, priority, body, event.EventName})
 	return nil
 }
 

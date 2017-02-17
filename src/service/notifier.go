@@ -139,7 +139,7 @@ func notifyPixel(r rec.Record) (err error) {
 		err = fmt.Errorf("json.Marshal: %s", err.Error())
 		return err
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body})
+	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.Pixels, uint8(0), body, event.EventName})
 	return nil
 }
 
@@ -180,7 +180,7 @@ func notifyRestorePixel(r rec.Record) (err error) {
 		err = fmt.Errorf("json.Marshal: %s", err.Error())
 		return err
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.RestorePixels, uint8(0), body})
+	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.RestorePixels, uint8(0), body, event.EventName})
 	return nil
 }
 
@@ -197,6 +197,6 @@ func publishTransactionLog(eventName string,
 
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.TransactionLog, 0, body})
+	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.TransactionLog, 0, body, event.EventName})
 	return nil
 }

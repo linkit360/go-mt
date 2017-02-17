@@ -288,7 +288,7 @@ func (qr *qrtech) publishCharge(priority uint8, r rec.Record) error {
 
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{qr.conf.Charge, priority, body})
+	svc.notifier.Publish(amqp.AMQPMessage{qr.conf.Charge, priority, body, event.EventName})
 	return nil
 }
 
