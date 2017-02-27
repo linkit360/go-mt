@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	"database/sql"
 	content_client "github.com/vostrok/contentd/rpcclient"
 	content_service "github.com/vostrok/contentd/service"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
@@ -25,15 +25,15 @@ import (
 )
 
 type yondu struct {
-	conf                   YonduConfig
-	m                      *YonduMetrics
-	loc                    *time.Location
-	activeSubscriptions    *activeSubscriptions
-	shedulledSubscriptions *sync.WaitGroup
-	MOCh                   <-chan amqp_driver.Delivery
-	MOConsumer             *amqp.Consumer
-	CallBackCh             <-chan amqp_driver.Delivery
-	CallBackConsumer       *amqp.Consumer
+	conf                YonduConfig
+	m                   *YonduMetrics
+	loc                 *time.Location
+	periodicSync        *sync.WaitGroup
+	activeSubscriptions *activeSubscriptions
+	MOCh                <-chan amqp_driver.Delivery
+	MOConsumer          *amqp.Consumer
+	DNCh                <-chan amqp_driver.Delivery
+	DNConsumer          *amqp.Consumer
 }
 
 type YonduConfig struct {
@@ -45,32 +45,12 @@ type YonduConfig struct {
 	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
-	Periodic           PeriodicConfig                  `yaml:"periodic" `
+	Periodic           PeriodicConfig                  `yaml:"periodic"`
 	Retries            RetriesConfig                   `yaml:"retries"`
-	PeriodicsCharge    SubscriptionChargeConfig        `yaml:"subscription"`
-	Consent            ConsentConfig                   `yaml:"consent"`
 	MT                 string                          `yaml:"mt"`
-	Charge             string                          `yaml:"charge"`
-	NewSubscription    queue_config.ConsumeQueueConfig `yaml:"new"`
-	CallBack           queue_config.ConsumeQueueConfig `yaml:"callback"`
+	MO                 queue_config.ConsumeQueueConfig `yaml:"mo"`
+	DN                 queue_config.ConsumeQueueConfig `yaml:"dn"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
-}
-type ConsentConfig struct {
-	Enabled bool                `yaml:"enabled"`
-	Queue   string              `yaml:"sent_consent"`
-	Repeat  RepeatConsentConfig `yaml:"repeat"`
-}
-
-type RepeatConsentConfig struct {
-	Enabled      bool `yaml:"enabled"`
-	DelayMinites int  `yaml:"delay_minutes"`
-	FetchLimit   int  `yaml:"fetch_limit" default:"500"`
-}
-type SubscriptionChargeConfig struct {
-	Enabled      bool  `yaml:"enabled"`
-	DelayMinutes int   `yaml:"delay_minutes"`
-	FetchLimit   int   `yaml:"fetch_limit"`
-	Priority     uint8 `yaml:"priority"`
 }
 type ContentConfig struct {
 	SendEnabled bool   `yaml:"enabled"`
@@ -97,8 +77,8 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 		return nil
 	}
 	y := &yondu{
-		conf: yConf,
-		shedulledSubscriptions: &sync.WaitGroup{},
+		conf:         yConf,
+		periodicSync: &sync.WaitGroup{},
 	}
 	y.initMetrics()
 	y.initActiveSubscriptionsCache()
@@ -114,14 +94,14 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 
 	content_client.Init(contentConf)
 
-	if yConf.NewSubscription.Enabled {
-		if yConf.NewSubscription.Name == "" {
-			log.Fatal("empty queue name new subscriptions")
+	if yConf.MO.Enabled {
+		if yConf.MO.Name == "" {
+			log.Fatal("empty queue name mo")
 		}
 		y.MOConsumer = amqp.NewConsumer(
 			consumerConfig,
-			yConf.NewSubscription.Name,
-			yConf.NewSubscription.PrefetchCount,
+			yConf.MO.Name,
+			yConf.MO.PrefetchCount,
 		)
 		if err := y.MOConsumer.Connect(); err != nil {
 			log.Fatal("rbmq consumer connect:", err.Error())
@@ -130,36 +110,36 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 			y.MOConsumer,
 			y.MOCh,
 			y.processMO,
-			yConf.NewSubscription.ThreadsCount,
-			yConf.NewSubscription.Name,
-			yConf.NewSubscription.Name,
+			yConf.MO.ThreadsCount,
+			yConf.MO.Name,
+			yConf.MO.Name,
 		)
 	} else {
-		log.Debug("new subscription disabled")
+		log.Debug("mo disabled")
 	}
 
-	if yConf.CallBack.Enabled {
-		if yConf.CallBack.Name == "" {
-			log.Fatal("empty queue name callback")
+	if yConf.DN.Enabled {
+		if yConf.DN.Name == "" {
+			log.Fatal("empty queue name dn")
 		}
-		y.CallBackConsumer = amqp.NewConsumer(
+		y.DNConsumer = amqp.NewConsumer(
 			consumerConfig,
-			yConf.CallBack.Name,
-			yConf.CallBack.PrefetchCount,
+			yConf.DN.Name,
+			yConf.DN.PrefetchCount,
 		)
-		if err := y.CallBackConsumer.Connect(); err != nil {
+		if err := y.DNConsumer.Connect(); err != nil {
 			log.Fatal("rbmq consumer connect:", err.Error())
 		}
 		amqp.InitQueue(
-			y.CallBackConsumer,
-			y.CallBackCh,
-			y.processCallBack,
-			yConf.CallBack.ThreadsCount,
-			yConf.CallBack.Name,
-			yConf.CallBack.Name,
+			y.DNConsumer,
+			y.DNCh,
+			y.processDN,
+			yConf.DN.ThreadsCount,
+			yConf.DN.Name,
+			yConf.DN.Name,
 		)
 	} else {
-		log.Debug("callbacks disabled")
+		log.Debug("dn disabled")
 	}
 
 	if yConf.Periodic.Enabled {
@@ -172,75 +152,10 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 	} else {
 		log.Debug("periodic disabled")
 	}
-
-	if yConf.Consent.Enabled && yConf.Consent.Repeat.Enabled {
-		go func() {
-			for range time.Tick(time.Second) {
-				y.repeatSentConsent()
-			}
-		}()
-	} else {
-		log.Debug("repeat consent disabled")
-	}
-
-	go func() {
-		if yConf.PeriodicsCharge.Enabled {
-			for range time.Tick(time.Second) {
-				begin := time.Now()
-				y.processChargeShedulledSubscriptions()
-				y.m.ProcessShedulledPeriodicsChargeDuration.Observe(time.Since(begin).Seconds())
-			}
-		}
-	}()
-
-	go func() {
-		if yConf.Retries.Enabled {
-		retries:
-			for range time.Tick(time.Duration(yConf.Retries.Period) * time.Second) {
-				for _, queue := range yConf.Retries.CheckQueuesFree {
-					queueSize, err := svc.notifier.GetQueueSize(queue)
-					if err != nil {
-						log.WithFields(log.Fields{
-							"operator": yConf.OperatorName,
-							"queue":    queue,
-							"error":    err.Error(),
-						}).Error("cannot get queue size")
-						continue retries
-					}
-					log.WithFields(log.Fields{
-						"operator":  yConf.OperatorName,
-						"queue":     queue,
-						"queueSize": queueSize,
-						"waitFor":   yConf.Retries.QueueFreeSize,
-					}).Debug("")
-					if queueSize > yConf.Retries.QueueFreeSize {
-						continue retries
-					}
-				}
-				log.WithFields(log.Fields{
-					"operator": yConf.OperatorName,
-					"waitFor":  yConf.Retries.QueueFreeSize,
-				}).Debug("achieve free queues size")
-				ProcessRetries(
-					yConf.OperatorCode,
-					yConf.Retries.FetchLimit,
-					yConf.Retries.PaidOnceHours,
-					y.publishCharge,
-				)
-			}
-		}
-	}()
 	return y
 }
 
 // get periodic for this day and time
-// generate subscriptions tid
-// tid := rec.GenerateTID()
-// create new subscriptions
-// generate send_content_text
-// send sms via Yondu API
-// create periodic transactions
-// update periodic last_request_at
 func (y *yondu) processPeriodic() {
 
 	begin := time.Now()
@@ -262,22 +177,46 @@ func (y *yondu) processPeriodic() {
 
 	begin = time.Now()
 	for _, r := range periodics {
-
-		if err := y.sentContent(r); err != nil {
-			Errors.Inc()
-		}
-
-		if err := y.charge(r, 1); err != nil {
-			Errors.Inc()
-		}
-
-		begin := time.Now()
-		if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-			return
-		}
-		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+		y.periodicSync.Add(1)
+		y.hanlePeriodic(r, y.charge)
 	}
+	y.periodicSync.Wait()
 	y.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
+}
+
+func (y *yondu) hanlePeriodic(r rec.Record, notifyFnSendChargeRequest func(rec.Record, uint8) error) {
+	defer y.periodicSync.Done()
+	logCtx := log.WithFields(log.Fields{
+		"tid":            r.Tid,
+		"attempts_count": r.AttemptsCount,
+	})
+
+	sincePreviousAttemptMinutes := time.Now().Sub(r.LastPayAttemptAt).Minutes()
+	delayMinutes := (time.Duration(y.conf.Periodic.FailedRepeatInMinutes) * time.Minute).Minutes()
+	if sincePreviousAttemptMinutes < delayMinutes {
+		y.m.DelayMinitsArentPassed.Inc()
+
+		logCtx.WithFields(log.Fields{
+			"prev":   r.LastPayAttemptAt,
+			"now":    time.Now().UTC(),
+			"passed": sincePreviousAttemptMinutes,
+			"delay":  delayMinutes,
+		}).Debug("delay minutes were not passed")
+		return
+	}
+	logCtx.Debug("start processsing")
+	if err := checkBlackListedPostpaid(&r); err != nil {
+		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
+		return
+	}
+	if err := notifyFnSendChargeRequest(r, 1); err != nil {
+		Errors.Inc()
+		NotifyErrors.Inc()
+
+		err = fmt.Errorf("notifyFnSendChargeRequest: %s", err.Error())
+		logCtx.WithField("error", err.Error()).Error("cannot send to queue")
+		return
+	}
 }
 
 func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
@@ -288,6 +227,13 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 		logCtx.WithField("error", err.Error()).Error("publishYonduCharge")
 		return
 	}
+
+	begin := time.Now()
+	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+		return
+	}
+	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 	logCtx.WithFields(log.Fields{
 		"amount":   r.Price,
 		"priority": priority,
@@ -346,7 +292,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	url := y.conf.Content.Url + contentProperties.UniqueUrl
 	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
 	if err = y.publishMT(r); err != nil {
-		logCtx.WithField("error", err.Error()).Error("publishYonduMT")
+		logCtx.WithField("error", err.Error()).Error("send content")
 		return
 	}
 	logCtx.WithFields(log.Fields{
@@ -377,7 +323,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				"error": err.Error(),
 				"msg":   "dropped",
 				"mo":    string(msg.Body),
-			}).Error("consume from " + y.conf.NewSubscription.Name)
+			}).Error("consume from " + y.conf.MO.Name)
 			goto ack
 		}
 
@@ -389,10 +335,10 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
 			Tid:              e.EventData.Tid,
 			Msisdn:           e.EventData.Params.Msisdn,
-			OperatorToken:    e.EventData.Params.TransID, // important, do not use from record - it's changed
+			OperatorToken:    e.EventData.Params.RRN, // important, do not use from record - it's changed
 			OperatorCode:     y.conf.OperatorCode,
 			CountryCode:      r.CountryCode,
-			Error:            "",
+			Error:            r.OperatorErr,
 			Price:            r.Price,
 			ServiceId:        r.ServiceId,
 			SubscriptionId:   r.SubscriptionId,
@@ -412,7 +358,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("publishTransactionLog")
 		}
 		for _, marker := range y.conf.UnsubscribeMarkers {
-			if strings.Contains(e.EventData.Params.KeyWord, marker) {
+			if strings.Contains(e.EventData.Params.Message, marker) {
 				if err := unsubscribe(r); err != nil {
 					msg.Nack(false, true)
 					continue
@@ -442,66 +388,40 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			continue
 		}
 		if r.Result == "" {
-
-			if err := y.sentContent(r); err != nil {
+			if err := y.charge(r, 1); err != nil {
 				Errors.Inc()
 			}
-			if y.conf.Consent.Enabled {
-				if err := y.publishSentConsent(r); err != nil {
+		} else if r.Result == "rejected" {
+			r.Periodic = false
+			if y.conf.ChargeOnRejected {
+				// todo: add retries for rejected simple
+				r.SubscriptionStatus = ""
+				r.Periodic = false
+				if err := writeSubscriptionPeriodic(r); err != nil {
 					Errors.Inc()
-					logCtx.WithField("error", err.Error()).Error("publishYonduSentConsent")
 				}
-				begin := time.Now()
-				if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
-					return
-				}
-				SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
-			} else {
 				if err := y.charge(r, 1); err != nil {
 					Errors.Inc()
 				}
-
-				begin := time.Now()
-				if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-					Errors.Inc()
-				}
-				SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+				goto ack
 			}
-		} else {
-			if r.Result == "rejected" {
-				r.Periodic = false
-				if y.conf.ChargeOnRejected {
-					r.SubscriptionStatus = ""
-					r.Periodic = false
-					if err := writeSubscriptionPeriodic(r); err != nil {
-						Errors.Inc()
-					}
-					if err := y.sentContent(r); err != nil {
-						Errors.Inc()
-					}
-					if err := y.charge(r, 1); err != nil {
-						Errors.Inc()
-					}
-					begin := time.Now()
-					if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-						Errors.Inc()
-					}
-					SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
-					goto ack
-				}
-				r.SMSText = y.conf.Texts.Rejected
+			r.SMSText = y.conf.Texts.Rejected
+		} else if r.Result == "blacklisted" {
+			r.SMSText = y.conf.Texts.BlackListed
+			if err := y.publishMT(r); err != nil {
+				Errors.Inc()
+				logCtx.WithField("error", err.Error()).Error("inform blacklisted failed")
 			}
-			if r.Result == "blacklisted" {
-				r.SMSText = y.conf.Texts.BlackListed
+		} else if r.Result == "postpaid" {
+			r.SMSText = y.conf.Texts.PostPaid
+			if err := y.publishMT(r); err != nil {
+				Errors.Inc()
+				logCtx.WithField("error", err.Error()).Error("inform postpaid failed")
 			}
-			if r.Result == "postpaid" {
-				r.SMSText = y.conf.Texts.PostPaid
-			}
-			if r.SMSText != "" {
-				if err := y.publishMT(r); err != nil {
-					logCtx.WithField("error", err.Error()).Error("publishYonduMT")
-				}
-			}
+		} else if r.SMSText != "" {
+			Errors.Inc()
+			logCtx.WithField("result", r.Result).Error("unknown result")
+			goto ack
 		}
 
 	ack:
@@ -519,13 +439,13 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error) {
 	r := rec.Record{}
-	campaign, err := inmem_client.GetCampaignByKeyWord(req.Params.KeyWord)
+	campaign, err := inmem_client.GetCampaignByKeyWord(req.Params.Message)
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
 		err = fmt.Errorf("inmem_client.GetCampaignByKeyWord: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword": req.Params.KeyWord,
+			"keyword": req.Params.Message,
 			"error":   err.Error(),
 		}).Error("cannot get campaign by keyword")
 		return r, err
@@ -536,7 +456,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		log.WithFields(log.Fields{
-			"keyword":    req.Params.KeyWord,
+			"message":    req.Params.Message,
 			"serviceId":  campaign.ServiceId,
 			"campaignId": campaign.Id,
 			"error":      err.Error(),
@@ -544,27 +464,14 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		return r, err
 	}
 
-	sentAt, err := time.Parse("20060102150405", req.Params.Timestamp)
-	if err != nil {
-		y.m.MOParseTimeError.Inc()
-
-		err = fmt.Errorf("time.Parse: %s", err.Error())
-		log.WithFields(log.Fields{
-			"keyword":    req.Params.KeyWord,
-			"serviceId":  campaign.ServiceId,
-			"campaignId": campaign.Id,
-			"error":      err.Error(),
-		}).Error("cannot parse operators time")
-		sentAt = time.Now().UTC()
-		err = nil
-	}
 	r = rec.Record{
-		SentAt:                   sentAt,
+		SentAt:                   req.ReceivedAt,
 		Msisdn:                   req.Params.Msisdn,
 		Tid:                      req.Tid,
 		SubscriptionStatus:       "",
 		CountryCode:              515,
 		OperatorCode:             y.conf.OperatorCode,
+		OperatorToken:            req.Params.RRN,
 		Publisher:                "",
 		Pixel:                    "",
 		CampaignId:               campaign.Id,
@@ -577,20 +484,20 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedFromHours: svc.PeriodicAllowedFrom,
 		PeriodicAllowedToHours:   svc.PeriodicAllowedTo,
-		SMSText:                  "OK",
+		SMSText:                  "",
 	}
-	r.OperatorToken = y.transId(req.Params.TransID, req.Params.Msisdn)
+
 	return r, nil
 }
 
 // ============================================================
-// callback
-type EventNotifyCallBack struct {
-	EventName string                           `json:"event_name,omitempty"`
-	EventData yondu_service.CallbackParameters `json:"event_data,omitempty"`
+// dn
+type EventNotifyDN struct {
+	EventName string                     `json:"event_name,omitempty"`
+	EventData yondu_service.DNParameters `json:"event_data,omitempty"`
 }
 
-func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
+func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
@@ -603,21 +510,21 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			"body":     string(msg.Body),
 		}).Debug("start process")
 
-		var e EventNotifyCallBack
+		var e EventNotifyDN
 
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			y.m.CallBackDropped.Inc()
+			y.m.DNDropped.Inc()
 
 			log.WithFields(log.Fields{
-				"error":    err.Error(),
-				"msg":      "dropped",
-				"callback": string(msg.Body),
-				"q":        y.conf.CallBack.Name,
+				"error": err.Error(),
+				"msg":   "dropped",
+				"dn":    string(msg.Body),
+				"q":     y.conf.DN.Name,
 			}).Error("failed")
 			goto ack
 		}
 
-		r, err = y.getRecordByCallback(e.EventData)
+		r, err = y.getRecordByDN(e.EventData)
 		logCtx = log.WithFields(log.Fields{
 			"tid":    r.Tid,
 			"msisdn": e.EventData.Params.Msisdn,
@@ -626,7 +533,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
 			Tid:              r.Tid,
 			Msisdn:           e.EventData.Params.Msisdn,
-			OperatorToken:    e.EventData.Params.TransID,
+			OperatorToken:    e.EventData.Params.RRN,
 			OperatorCode:     y.conf.OperatorCode,
 			CountryCode:      r.CountryCode,
 			Error:            r.OperatorErr,
@@ -641,17 +548,17 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
 		}
-		if transErr := publishTransactionLog("callback", transactionMsg); transErr != nil {
+		if transErr := publishTransactionLog("dn", transactionMsg); transErr != nil {
 			logCtx.WithFields(log.Fields{
-				"event":    e.EventName,
-				"callback": msg.Body,
-				"error":    transErr.Error(),
+				"event": e.EventName,
+				"dn":    msg.Body,
+				"error": transErr.Error(),
 			}).Error("sent to transaction log failed")
 			msg.Nack(false, true)
 			continue
 		} else {
 			logCtx.WithFields(log.Fields{
-				"queue": y.conf.CallBack.Name,
+				"queue": y.conf.DN.Name,
 				"event": e.EventName,
 				"tid":   r.Tid,
 			}).Info("sent to transaction log")
@@ -661,7 +568,8 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 		}
 
 	processResponse:
-		if err = processResponse(&r, y.conf.Retries.Enabled); err != nil {
+		// false - retries disabled
+		if err = processResponse(&r, false); err != nil {
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 				"sleep": 1,
@@ -669,8 +577,12 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 			time.Sleep(time.Second)
 			goto processResponse
 		}
-		if r.Periodic {
-			//
+		if r.Paid {
+			if err := y.sentContent(r); err != nil {
+				logCtx.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("send content failed")
+			}
 		}
 
 		// is was pending
@@ -688,8 +600,8 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 	ack:
 		if err := msg.Ack(false); err != nil {
 			logCtx.WithFields(log.Fields{
-				"callback": msg.Body,
-				"error":    err.Error(),
+				"dn":    msg.Body,
+				"error": err.Error(),
 			}).Error("cannot ack")
 			time.Sleep(time.Second)
 			goto ack
@@ -697,7 +609,7 @@ func (y *yondu) processCallBack(deliveries <-chan amqp_driver.Delivery) {
 
 	}
 }
-func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec.Record, err error) {
+func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err error) {
 	defer func() {
 		if err != nil {
 			r.OperatorErr = err.Error()
@@ -708,42 +620,63 @@ func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec
 	}()
 
 	logCtx := log.WithFields(log.Fields{
-		"otid": req.Params.TransID,
+		"rrn": req.Params.RRN,
 	})
-	if y.conf.Retries.Enabled {
+
+	r, err = rec.GetSubscriptionByToken(req.Params.RRN)
+	if err != nil && err != sql.ErrNoRows {
+		y.m.DNRRnError.Inc()
+
+		err := fmt.Errorf("rec.GetSubscriptionByToken: %s", err.Error())
+		logCtx.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Error("cannot get rec")
+		return rec.Record{}, err
+	}
+	if r.SubscriptionId == 0 {
 		r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "pending")
 		if err != nil && err != sql.ErrNoRows {
+			y.m.DNRRnError.Inc()
+
 			err := fmt.Errorf("rec.GetRetryByMsisdn: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
-			}).Error("cannot get from retries")
+			}).Error("cannot get rec")
 			return rec.Record{}, err
-		}
-	}
-	if err == sql.ErrNoRows || r.RetryId == 0 {
-		r, err = rec.GetSubscriptionByToken(y.transId(req.Params.TransID, req.Params.Msisdn))
-		if err != nil {
-			err = fmt.Errorf("rec.GetPeriodicSubscriptionByToken: %s", err.Error())
+		} else {
 			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Error("cannot get from subscriptions")
-			return rec.Record{}, err
+				"tid": r.Tid,
+			}).Debug("'pending' status")
+		}
+		if r.SubscriptionId == 0 {
+			r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "")
+			if err != nil && err != sql.ErrNoRows {
+				y.m.DNRRnError.Inc()
+
+				err := fmt.Errorf("rec.GetRetryByMsisdn: %s", err.Error())
+				logCtx.WithFields(log.Fields{
+					"error": err.Error(),
+				}).Error("cannot get rec")
+				return rec.Record{}, err
+			} else {
+				logCtx.WithFields(log.Fields{
+					"tid": r.Tid,
+				}).Debug("'' status")
+			}
 		}
 	}
 
 	if r.SubscriptionId == 0 {
-		y.m.CallBackTransIdError.Inc()
+		y.m.DNRRnError.Inc()
 
-		err = fmt.Errorf("CallBack not found %s", req.Params.TransID)
-		r.Tid = rec.GenerateTID()
-
+		err := fmt.Errorf("rec.GetRetryByMsisdn: %s", "No subscription id")
 		logCtx.WithFields(log.Fields{
-			"tid":   r.Tid,
 			"error": err.Error(),
-		}).Error("cann't process")
-		return r, err
+		}).Error("cannot get rec")
+		return rec.Record{}, err
 	}
-	if req.Params.StatusCode == "0" {
+
+	if req.Params.Code == "201" || req.Params.Code == "200" {
 		r.Paid = true
 		r.SubscriptionStatus = "paid" // for operator transaction log
 	} else {
@@ -751,13 +684,13 @@ func (y *yondu) getRecordByCallback(req yondu_service.CallbackParameters) (r rec
 	}
 	r.SentAt, err = time.Parse("20060102150405", req.Params.Timestamp)
 	if err != nil {
-		y.m.CallBackParseTimeError.Inc()
+		y.m.DNParseTimeError.Inc()
 
 		log.WithFields(log.Fields{
 			"tid":       r.Tid,
 			"error":     err.Error(),
 			"timestamp": req.Params.Timestamp,
-		}).Error("cannot parse callback time")
+		}).Error("cannot parse dn time")
 		r.SentAt = time.Now().UTC()
 		err = nil
 	}
@@ -770,10 +703,9 @@ type YonduMetrics struct {
 	MODropped                               m.Gauge
 	MOUnknownCampaign                       m.Gauge
 	MOUnknownService                        m.Gauge
-	MOParseTimeError                        m.Gauge
-	CallBackDropped                         m.Gauge
-	CallBackParseTimeError                  m.Gauge
-	CallBackTransIdError                    m.Gauge
+	DNDropped                               m.Gauge
+	DNParseTimeError                        m.Gauge
+	DNRRnError                              m.Gauge
 	AddToDBErrors                           m.Gauge
 	AddToDbSuccess                          m.Gauge
 	DelayMinitsArentPassed                  m.Gauge
@@ -788,10 +720,9 @@ func (y *yondu) initMetrics() {
 		MODropped:                               m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
 		MOUnknownCampaign:                       m.NewGauge(appName, telcoName, "mo_unknown_campaign", "yondu MO unknown campaign"),
 		MOUnknownService:                        m.NewGauge(appName, telcoName, "mo_unknown_service", "yondu MO unknown service"),
-		MOParseTimeError:                        m.NewGauge(appName, telcoName, "mo_parse_time_error", "yondu MO parse operators time error"),
-		CallBackDropped:                         m.NewGauge(appName, telcoName, "callback_dropped", "yondu callback dropped"),
-		CallBackParseTimeError:                  m.NewGauge(appName, telcoName, "callback_parse_time_error", "yondu callback parse operators time error"),
-		CallBackTransIdError:                    m.NewGauge(appName, telcoName, "callback_transid_error", "yondu callback cannot get record by transid"),
+		DNDropped:                               m.NewGauge(appName, telcoName, "dn_dropped", "yondu dn dropped"),
+		DNParseTimeError:                        m.NewGauge(appName, telcoName, "dn_parse_time_error", "yondu dn parse operators time error"),
+		DNRRnError:                              m.NewGauge(appName, telcoName, "dn_rrn_error", "yondu dn cannot get record by rrn"),
 		AddToDBErrors:                           m.NewGauge(appName, telcoName, "add_to_db_errors", "subscription add to db errors"),
 		AddToDbSuccess:                          m.NewGauge(appName, telcoName, "add_to_db_success", "subscription add to db success"),
 		DelayMinitsArentPassed:                  m.NewGauge(appName, telcoName, "delay_minutes_not_passed", "delay minutes not passed"),
@@ -804,10 +735,9 @@ func (y *yondu) initMetrics() {
 			ym.MODropped.Update()
 			ym.MOUnknownCampaign.Update()
 			ym.MOUnknownService.Update()
-			ym.MOParseTimeError.Update()
-			ym.CallBackDropped.Update()
-			ym.CallBackParseTimeError.Update()
-			ym.CallBackTransIdError.Update()
+			ym.DNDropped.Update()
+			ym.DNParseTimeError.Update()
+			ym.DNRRnError.Update()
 			ym.AddToDBErrors.Update()
 			ym.AddToDbSuccess.Update()
 			ym.DelayMinitsArentPassed.Update()
@@ -819,27 +749,10 @@ func (y *yondu) initMetrics() {
 
 // ============================================================
 // notifier functions
-func (y *yondu) publishSentConsent(r rec.Record) error {
-	if !y.conf.Consent.Enabled {
-		return nil
-	}
-	r.SentAt = time.Now().UTC()
-	event := amqp.EventNotify{
-		EventName: "sent_consent",
-		EventData: r,
-	}
-	body, err := json.Marshal(event)
-	if err != nil {
-		NotifyErrors.Inc()
-		return fmt.Errorf("json.Marshal: %s", err.Error())
-	}
-
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Consent.Queue, 0, body, event.EventName})
-	log.WithField("tid", r.Tid).Debug("sent consent")
-	return nil
-}
-
 func (y *yondu) publishMT(r rec.Record) error {
+	if r.SMSText == "" {
+		return fmt.Errorf("sms text is empty: %s", "")
+	}
 	r.SentAt = time.Now().UTC()
 	event := amqp.EventNotify{
 		EventName: "mt",
@@ -855,9 +768,10 @@ func (y *yondu) publishMT(r rec.Record) error {
 	return nil
 }
 func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
+	r.SMSText = ""
 	r.SentAt = time.Now().UTC()
 	event := amqp.EventNotify{
-		EventName: "charge",
+		EventName: "mt",
 		EventData: r,
 	}
 	body, err := json.Marshal(event)
@@ -866,7 +780,7 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 
 		return fmt.Errorf("json.Marshal: %s", err.Error())
 	}
-	svc.notifier.Publish(amqp.AMQPMessage{y.conf.Charge, priority, body, event.EventName})
+	svc.notifier.Publish(amqp.AMQPMessage{y.conf.MT, priority, body, event.EventName})
 	return nil
 }
 
@@ -919,98 +833,4 @@ func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
 		"tid": r.Tid,
 		"key": key,
 	}).Debug("deleted from active subscriptions cache")
-}
-
-func (y *yondu) transId(operatorToken, msisdn string) string {
-	token := strings.Replace(operatorToken, "DMP", "KRE", 1)
-	return token[:7] + msisdn[2:]
-}
-
-// if it wasn't paid the day we send content,
-// try to charge same day after some delay
-func (y *yondu) processChargeShedulledSubscriptions() {
-	periodics, err := rec.GetNotPaidPeriodics(
-		y.conf.PeriodicsCharge.DelayMinutes,
-		y.conf.PeriodicsCharge.FetchLimit,
-	)
-	if err != nil {
-		return
-	}
-	if len(periodics) == 0 {
-		return
-	}
-	for _, r := range periodics {
-		y.shedulledSubscriptions.Add(1)
-		go y.hanlePeriodic(r, y.publishCharge)
-	}
-	y.shedulledSubscriptions.Wait()
-}
-
-func (y *yondu) hanlePeriodic(r rec.Record, notifyFnSendChargeRequest func(uint8, rec.Record) error) {
-	defer y.shedulledSubscriptions.Done()
-	logCtx := log.WithFields(log.Fields{
-		"tid":            r.Tid,
-		"attempts_count": r.AttemptsCount,
-	})
-
-	sincePreviousAttempt := time.Now().Sub(r.LastPayAttemptAt).Minutes()
-	delayMinutes := (time.Duration(y.conf.PeriodicsCharge.DelayMinutes) * time.Minute).Minutes()
-	if sincePreviousAttempt < delayMinutes {
-		y.m.DelayMinitsArentPassed.Inc()
-
-		logCtx.WithFields(log.Fields{
-			"prev":   r.LastPayAttemptAt,
-			"now":    time.Now().UTC(),
-			"passed": sincePreviousAttempt,
-			"delay":  delayMinutes,
-		}).Debug("delay minutes were not passed")
-		return
-	}
-	logCtx.Debug("start processsing")
-	if err := checkBlackListedPostpaid(&r); err != nil {
-		err = fmt.Errorf("checkBlackListedPostpaid: %s", err.Error())
-		return
-	}
-	begin := time.Now()
-	if err := rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
-		return
-	}
-	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
-
-	if err := notifyFnSendChargeRequest(y.conf.PeriodicsCharge.Priority, r); err != nil {
-		Errors.Inc()
-		NotifyErrors.Inc()
-
-		err = fmt.Errorf("notifyFnSendChargeRequest: %s", err.Error())
-		logCtx.WithField("error", err.Error()).Error("cannot send to queue")
-		return
-	}
-	logCtx.WithField("took", time.Since(begin).Seconds()).Debug("notify operator")
-}
-
-func (y *yondu) repeatSentConsent() {
-	records, err := rec.GetRepeatSentConsent(
-		y.conf.OperatorCode,
-		y.conf.Consent.Repeat.DelayMinites,
-		y.conf.Consent.Repeat.FetchLimit,
-	)
-	if err != nil {
-		return
-	}
-	for _, r := range records {
-		r.Notice = "sent consent repeat"
-		if err := y.publishSentConsent(r); err != nil {
-			Errors.Inc()
-			log.WithFields(log.Fields{
-				"tid":   r.Tid,
-				"error": err.Error(),
-			}).Error("publishYonduSentConsent")
-			continue
-		}
-		begin := time.Now()
-		if err := rec.SetSubscriptionStatus("consent", r.SubscriptionId); err != nil {
-			return
-		}
-		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
-	}
 }

@@ -41,6 +41,7 @@ func LoadConfig() AppConfig {
 			log.WithField("config", err.Error()).Fatal("config load error")
 		}
 	}
+
 	if appConfig.AppName == "" {
 		log.Fatal("app name must be defiled as <host>_<name>")
 	}

@@ -144,8 +144,8 @@ service:
       period: 10
       interval_type: min
       failed_repeat_in_minutes: 15
-    charge: qrtech_mt
-    new:
+    mt: qrtech_mt
+    mo:
       name: qrtech_mo
       enabled: true
       prefetch_count: 10
