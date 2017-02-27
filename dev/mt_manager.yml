@@ -81,13 +81,6 @@ service:
       failed_repeat_in_minutes: 60
     unsubscribe:
       - off
-    consent:
-     enabled: false
-     queue: yondu_consent
-     repeat:
-       enabled: true
-       delay_minutes: 10
-       fetch_limit: 40
     mt: yondu_mt
     mo:
       name: yondu_mo

@@ -503,7 +503,6 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 		var r rec.Record
 		var err error
 		var logCtx *log.Entry
-		var begin time.Time
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
 		log.WithFields(log.Fields{
