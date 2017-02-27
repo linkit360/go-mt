@@ -46,10 +46,10 @@ type YonduConfig struct {
 	Content            ContentConfig                   `yaml:"content"`
 	Texts              TextsConfig                     `yaml:"texts"`
 	Periodic           PeriodicConfig                  `yaml:"periodic"`
-	Retries            RetriesConfig                   `yaml:"retries"`
 	MT                 string                          `yaml:"mt"`
 	MO                 queue_config.ConsumeQueueConfig `yaml:"mo"`
 	DN                 queue_config.ConsumeQueueConfig `yaml:"dn"`
+	DNResponseCode     map[string]string               `yaml:"dn_code"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
 }
 type ContentConfig struct {
@@ -57,11 +57,11 @@ type ContentConfig struct {
 	Url         string `yaml:"url"`
 }
 type TextsConfig struct {
-	Rejected       string `yaml:"rejected" default:"You already subscribed on this service"`
-	RejectedCharge string `yaml:"rejected_charge" default:"You already subscribed on this service. Please find more games here: %s"`
-	BlackListed    string `yaml:"blacklisted" default:"Sorry, service not available"`
-	PostPaid       string `yaml:"postpaid" default:"Sorry, service not available"`
-	Unsubscribe    string `yaml:"unsubscribe" default:"You have been unsubscribed"`
+	Rejected       string `yaml:"rejected"`
+	RejectedCharge string `yaml:"rejected_charge"`
+	BlackListed    string `yaml:"blacklisted"`
+	PostPaid       string `yaml:"postpaid"`
+	Unsubscribe    string `yaml:"unsubscribe"`
 }
 
 type PeriodicConfig struct {
@@ -235,8 +235,9 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
 
 	logCtx.WithFields(log.Fields{
-		"amount":   r.Price,
-		"priority": priority,
+		"amount":     r.Price,
+		"service_id": r.ServiceId,
+		"priority":   priority,
 	}).Info("charge")
 	return
 }
@@ -584,18 +585,9 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 				}).Error("send content failed")
 			}
 		}
-
 		// is was pending
-		begin = time.Now()
-		if err := rec.SetSubscriptionStatus("", r.SubscriptionId); err != nil {
-			Errors.Inc()
-			err = fmt.Errorf("rec.SetSubscriptionStatus: %s", err.Error())
-			logCtx.WithFields(log.Fields{
-				"error": err.Error(),
-			}).Error("cannot set subscription status")
-			return
-		}
-		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+		// it is not necessary to update subscription status since
+		// it would be updated via qlistener in process response
 
 	ack:
 		if err := msg.Ack(false); err != nil {
@@ -679,6 +671,8 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 	if req.Params.Code == "201" || req.Params.Code == "200" {
 		r.Paid = true
 		r.SubscriptionStatus = "paid" // for operator transaction log
+	} else if req.Params.Code == "414" {
+		r.SubscriptionStatus = "postpaid"
 	} else {
 		r.SubscriptionStatus = "failed"
 	}

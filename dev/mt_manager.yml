@@ -59,40 +59,26 @@ service:
     sms_requests: mobilink_requests
 
   yondu:
-    enabled: false
+    enabled: true
     operator_name: yondu
     operator_code: 51501
     country_code: 515
     charge_on_rejected: true
     location: Asia/Bangkok
     content:
-      send_enabled: false
+      send_enabled: true
       url: http://dev.pk.linkit360.ru/u/
     texts:
       rejected: "You already subscribed on this service."
-      rejected_charge: "You already subscribed on this service. Please find more games here: %s"
+      rejected_charge: "You already subscribed on this service."
       blacklisted: "Sorry, service not available."
       postpaid: "Sorry, service not available."
       unsubscribe: "You have been unsubscribed."
     periodic:
       enabled: false
       fetch_limit: 10
-      interval_type: hour
+      interval_type: min
       failed_repeat_in_minutes: 60
-    subscription:
-      enabled: true
-      delay_minutes: 1
-      fetch_limit: 200
-      priority: 0
-    retries:
-      enabled: false
-      period: 501
-      fetch_limit: 2501
-      paid_once_hours: 24
-      queue_free_size: 3500
-      check_queues_free:
-      - "yondu_charge"
-      - "mt_manager"
     unsubscribe:
       - off
     consent:
@@ -103,20 +89,33 @@ service:
        delay_minutes: 10
        fetch_limit: 40
     mt: yondu_mt
-    charge: yondu_charge
-    new:
+    mo:
       name: yondu_mo
       enabled: true
       prefetch_count: 10
       threads_count: 10
-    callback:
-      name: yondu_callback
+    dn:
+      name: yondu_dn
       prefetch_count: 10
       enabled: true
       threads_count: 10
+    dn_code:
+      200: Success. Successfully charged
+      201: Success. Successfully charged
+      400: Authentication Error. Credentials error to telco
+      401: Subscriber not found
+      402: Subscriber mobile number is not active
+      411: GHP Subscriber has insufficient balance Insufficient balance to all Prepaid/GHP subscribers
+      412: EricssonInsuffBal.  Insufficient balance to all Touch Mobile subscribers
+      414: StatusInactive. Postpaid subscriber is inactive
+      416: ServerError. Current service is down or inactive
+      500: ReadTimeout. Current service is down or inactive
+      503: CSP Error. Telco problem to connect in CSP platform / App is not provisioned for charging or this rate / Charging amount is not provision / System is busy / Connection problem to telco
+      1001: No Response. Cannot connect Telco API after 3 attempts
+      1002: Connection Refused. Cannot access Telco API
 
   cheese:
-    enabled: true
+    enabled: false
     operator_name: cheese
     country_code: 66
     mcc: 520
