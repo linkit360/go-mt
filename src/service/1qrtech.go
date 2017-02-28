@@ -30,16 +30,16 @@ type qrtech struct {
 }
 
 type QRTechConfig struct {
-	Enabled         bool                            `yaml:"enabled" default:"false"`
-	OperatorName    string                          `yaml:"operator_name" default:"qrtech"`
-	AisMNC          string                          `yaml:"ais_mnc" `
-	DtacMNC         string                          `yaml:"dtac_mnc" `
-	TruehMNC        string                          `yaml:"trueh_mnc" `
-	MCC             string                          `yaml:"mcc"`
-	CountryCode     int64                           `yaml:"country_code" default:"66"`
-	Location        string                          `yaml:"location"`
-	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
-	DN              queue_config.ConsumeQueueConfig `yaml:"dn"`
+	Enabled      bool                            `yaml:"enabled" default:"false"`
+	OperatorName string                          `yaml:"operator_name" default:"qrtech"`
+	AisMNC       string                          `yaml:"ais_mnc" `
+	DtacMNC      string                          `yaml:"dtac_mnc" `
+	TruehMNC     string                          `yaml:"trueh_mnc" `
+	MCC          string                          `yaml:"mcc"`
+	CountryCode  int64                           `yaml:"country_code" default:"66"`
+	Location     string                          `yaml:"location"`
+	MO           queue_config.ConsumeQueueConfig `yaml:"mo"`
+	DN           queue_config.ConsumeQueueConfig `yaml:"dn"`
 }
 
 func initQRTech(
@@ -64,14 +64,14 @@ func initQRTech(
 	qr.initMetrics()
 	qr.initActiveSubscriptionsCache()
 
-	if qrTechConf.NewSubscription.Enabled {
-		if qrTechConf.NewSubscription.Name == "" {
-			log.Fatal("empty queue name new subscriptions")
+	if qrTechConf.MO.Enabled {
+		if qrTechConf.MO.Name == "" {
+			log.Fatal("empty queue name mo")
 		}
 		qr.MOConsumer = amqp.NewConsumer(
 			consumerConfig,
-			qrTechConf.NewSubscription.Name,
-			qrTechConf.NewSubscription.PrefetchCount,
+			qrTechConf.MO.Name,
+			qrTechConf.MO.PrefetchCount,
 		)
 		if err := qr.MOConsumer.Connect(); err != nil {
 			log.Fatal("rbmq consumer connect:", err.Error())
@@ -80,12 +80,12 @@ func initQRTech(
 			qr.MOConsumer,
 			qr.MOCh,
 			qr.processMO,
-			qrTechConf.NewSubscription.ThreadsCount,
-			qrTechConf.NewSubscription.Name,
-			qrTechConf.NewSubscription.Name,
+			qrTechConf.MO.ThreadsCount,
+			qrTechConf.MO.Name,
+			qrTechConf.MO.Name,
 		)
 	} else {
-		log.Debug("new subscription disabled")
+		log.Debug("mo disabled")
 	}
 
 	if qrTechConf.DN.Enabled {
@@ -173,7 +173,7 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 				"error": err.Error(),
 				"msg":   "dropped",
 				"mo":    string(msg.Body),
-			}).Error("consume from " + qr.conf.NewSubscription.Name)
+			}).Error("consume from " + qr.conf.MO.Name)
 			goto ack
 		}
 		r = e.EventData
@@ -254,8 +254,10 @@ func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 			qrTech.m.DNErrors.Inc()
 			msg.Nack(false, true)
 			continue
+		} else {
+			qrTech.m.DNSuccess.Inc()
 		}
-		qrTech.m.DNSuccess.Inc()
+
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{

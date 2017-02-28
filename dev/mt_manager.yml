@@ -59,7 +59,7 @@ service:
     sms_requests: mobilink_requests
 
   yondu:
-    enabled: true
+    enabled: false
     operator_name: yondu
     operator_code: 51501
     country_code: 63
@@ -108,7 +108,7 @@ service:
       1002: Connection Refused. Cannot access Telco API
 
   cheese:
-    enabled: false
+    enabled: true
     operator_name: cheese
     country_code: 66
     mcc: 520
@@ -136,7 +136,6 @@ service:
       period: 10
       interval_type: min
       failed_repeat_in_minutes: 15
-    mt: qrtech_mt
     mo:
       name: qrtech_mo
       enabled: true
