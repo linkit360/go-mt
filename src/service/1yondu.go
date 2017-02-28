@@ -316,6 +316,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
+		y.m.MOIncoming.Inc()
 		var e YonduEventNotifyMO
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			y.m.MODropped.Inc()
@@ -391,6 +392,8 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 		if r.Result == "" {
 			if err := y.charge(r, 1); err != nil {
 				Errors.Inc()
+			} else {
+				y.m.MOSuccess.Inc()
 			}
 		} else if r.Result == "rejected" {
 			r.Periodic = false
@@ -505,6 +508,8 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
+		y.m.DNIncoming.Inc()
+
 		log.WithFields(log.Fields{
 			"priority": msg.Priority,
 			"body":     string(msg.Body),
@@ -576,6 +581,8 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("process response error")
 			time.Sleep(time.Second)
 			goto processResponse
+		} else {
+			y.m.DNSuccess.Inc()
 		}
 		if r.Paid {
 			if err := y.sentContent(r); err != nil {
@@ -693,12 +700,16 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 // ============================================================
 // metrics
 type YonduMetrics struct {
+	MOIncoming                              m.Gauge
+	MOSuccess                               m.Gauge
 	MODropped                               m.Gauge
 	MOUnknownCampaign                       m.Gauge
 	MOUnknownService                        m.Gauge
+	DNIncoming                              m.Gauge
 	DNDropped                               m.Gauge
 	DNParseTimeError                        m.Gauge
 	DNRRnError                              m.Gauge
+	DNSuccess                               m.Gauge
 	AddToDBErrors                           m.Gauge
 	AddToDbSuccess                          m.Gauge
 	DelayMinitsArentPassed                  m.Gauge
@@ -713,6 +724,10 @@ func (y *yondu) initMetrics() {
 		MODropped:                               m.NewGauge(appName, telcoName, "mo_dropped", "yondu mo dropped"),
 		MOUnknownCampaign:                       m.NewGauge(appName, telcoName, "mo_unknown_campaign", "yondu MO unknown campaign"),
 		MOUnknownService:                        m.NewGauge(appName, telcoName, "mo_unknown_service", "yondu MO unknown service"),
+		MOIncoming:                              m.NewGauge(appName, telcoName, "mo_incoming", "yondu dn incoming"),
+		MOSuccess:                               m.NewGauge(appName, telcoName, "mo_success", "yondu mo success"),
+		DNIncoming:                              m.NewGauge(appName, telcoName, "dn_incoming", "yondu mo incoming"),
+		DNSuccess:                               m.NewGauge(appName, telcoName, "dn_success", "yondu dn success"),
 		DNDropped:                               m.NewGauge(appName, telcoName, "dn_dropped", "yondu dn dropped"),
 		DNParseTimeError:                        m.NewGauge(appName, telcoName, "dn_parse_time_error", "yondu dn parse operators time error"),
 		DNRRnError:                              m.NewGauge(appName, telcoName, "dn_rrn_error", "yondu dn cannot get record by rrn"),
@@ -725,10 +740,14 @@ func (y *yondu) initMetrics() {
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
+			ym.MOIncoming.Update()
+			ym.MOSuccess.Update()
 			ym.MODropped.Update()
 			ym.MOUnknownCampaign.Update()
 			ym.MOUnknownService.Update()
 			ym.DNDropped.Update()
+			ym.DNIncoming.Update()
+			ym.DNSuccess.Update()
 			ym.DNParseTimeError.Update()
 			ym.DNRRnError.Update()
 			ym.AddToDBErrors.Update()

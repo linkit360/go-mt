@@ -75,7 +75,7 @@ service:
       postpaid: "Sorry, service not available."
       unsubscribe: "You have been unsubscribed."
     periodic:
-      enabled: false
+      enabled: true
       fetch_limit: 10
       interval_type: min
       failed_repeat_in_minutes: 60
