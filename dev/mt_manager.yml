@@ -64,7 +64,7 @@ service:
     operator_code: 51501
     country_code: 63
     charge_on_rejected: true
-    location: Asia/Bangkok
+    location: Asia/Manila
     content:
       send_enabled: true
       url: http://dev.pk.linkit360.ru/u/

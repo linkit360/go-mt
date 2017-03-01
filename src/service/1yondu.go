@@ -65,7 +65,7 @@ type TextsConfig struct {
 }
 
 type PeriodicConfig struct {
-	Enabled               bool   `yaml:"enabled" default:"false"`
+	Enabled               bool   `yaml:"enabled"`
 	Period                int    `yaml:"period" default:"600"`
 	IntervalType          string `yaml:"interval_type" default:"hour"`
 	FailedRepeatInMinutes int    `yaml:"failed_repeat_in_minutes" default:"60"`
@@ -552,6 +552,7 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 			ResponseCode:     200,
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
+			Notice:           r.Notice,
 		}
 		if transErr := publishTransactionLog("dn", transactionMsg); transErr != nil {
 			logCtx.WithFields(log.Fields{
@@ -620,6 +621,17 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 	logCtx := log.WithFields(log.Fields{
 		"rrn": req.Params.RRN,
 	})
+
+	resultCode, ok := y.conf.DNResponseCode[req.Params.Code]
+	if ok {
+		r.Notice = resultCode
+	} else {
+		logCtx.WithFields(log.Fields{
+			"error": "cannot find DN code",
+			"code":  req.Params.Code,
+		}).Warning("unknown code")
+		r.Notice = "unknown dn code"
+	}
 
 	r, err = rec.GetSubscriptionByToken(req.Params.RRN)
 	if err != nil && err != sql.ErrNoRows {

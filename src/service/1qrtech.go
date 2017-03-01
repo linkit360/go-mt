@@ -18,15 +18,14 @@ import (
 )
 
 type qrtech struct {
-	conf                   QRTechConfig
-	m                      *QRTechMetrics
-	loc                    *time.Location
-	activeSubscriptions    *activeSubscriptions
-	shedulledSubscriptions *sync.WaitGroup
-	MOCh                   <-chan amqp_driver.Delivery
-	DNCh                   <-chan amqp_driver.Delivery
-	MOConsumer             *amqp.Consumer
-	DNConsumer             *amqp.Consumer
+	conf                QRTechConfig
+	m                   *QRTechMetrics
+	loc                 *time.Location
+	activeSubscriptions *activeSubscriptions
+	MOCh                <-chan amqp_driver.Delivery
+	DNCh                <-chan amqp_driver.Delivery
+	MOConsumer          *amqp.Consumer
+	DNConsumer          *amqp.Consumer
 }
 
 type QRTechConfig struct {
