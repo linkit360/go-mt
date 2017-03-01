@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"strconv"
-	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
