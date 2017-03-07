@@ -334,6 +334,9 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
+		if err == nil && r.CampaignId == 0 {
+			goto ack
+		}
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
 			Tid:              e.EventData.Tid,
 			Msisdn:           e.EventData.Params.Msisdn,
@@ -443,7 +446,9 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error) {
 	r := rec.Record{}
-	campaign, err := inmem_client.GetCampaignByKeyWord(req.Params.Message)
+
+	keyWords := strings.Split(req.Params.Message, " ")
+	campaign, err := inmem_client.GetCampaignByKeyWord(keyWords[0])
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
@@ -452,7 +457,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 			"keyword": req.Params.Message,
 			"error":   err.Error(),
 		}).Error("cannot get campaign by keyword")
-		return r, err
+		return r, nil
 	}
 	svc, err := inmem_client.GetServiceById(campaign.ServiceId)
 	if err != nil {
