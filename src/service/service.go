@@ -51,17 +51,16 @@ type RetriesConfig struct {
 func Init(
 	name string,
 	serviceConf MTServiceConfig,
-	inMemConfig inmem_client.RPCClientConfig,
+	inMemConfig inmem_client.ClientConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
-	contentConfig content_client.RPCClientConfig,
+	contentConfig content_client.ClientConfig,
 
 ) {
 	appName = name
 	log.SetLevel(log.DebugLevel)
 	svc.notifier = amqp.NewNotifier(publisherConf)
-	svc.notifier.RestoreState()
 
 	rec.Init(dbConf)
 
@@ -80,5 +79,4 @@ func Init(
 
 func SaveState() {
 	log.WithField("pid", os.Getpid()).Info("save state")
-	svc.notifier.SaveState()
 }

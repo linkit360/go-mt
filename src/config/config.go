@@ -21,14 +21,14 @@ type ServerConfig struct {
 }
 
 type AppConfig struct {
-	AppName              string                         `yaml:"app_name"`
-	Server               ServerConfig                   `yaml:"server"`
-	Service              service.MTServiceConfig        `yaml:"service"`
-	InMemClientConfig    inmem_client.RPCClientConfig   `yaml:"inmem_client"`
-	ContentdClientConfig content_client.RPCClientConfig `yaml:"contentd_client"`
-	DbConf               db.DataBaseConfig              `yaml:"db"`
-	Publisher            amqp.NotifierConfig            `yaml:"publisher"`
-	Consumer             amqp.ConsumerConfig            `yaml:"consumer"`
+	AppName              string                      `yaml:"app_name"`
+	Server               ServerConfig                `yaml:"server"`
+	Service              service.MTServiceConfig     `yaml:"service"`
+	InMemClientConfig    inmem_client.ClientConfig   `yaml:"inmem_client"`
+	ContentdClientConfig content_client.ClientConfig `yaml:"contentd_client"`
+	DbConf               db.DataBaseConfig           `yaml:"db"`
+	Publisher            amqp.NotifierConfig         `yaml:"publisher"`
+	Consumer             amqp.ConsumerConfig         `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {

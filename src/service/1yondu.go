@@ -72,7 +72,7 @@ type PeriodicConfig struct {
 	FetchLimit            int    `yaml:"fetch_limit" default:"500"`
 }
 
-func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentConf content_client.RPCClientConfig) *yondu {
+func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentConf content_client.ClientConfig) *yondu {
 	if !yConf.Enabled {
 		return nil
 	}
