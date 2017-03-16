@@ -11,6 +11,11 @@ content_client:
   dsn: :50302
   timeout: 10
 
+reporter_client:
+  enabled: true
+  dsn: :50316
+  timeout: 10
+
 service:
   queues:
     pixels: pixels

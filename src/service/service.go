@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -8,6 +9,7 @@ import (
 
 	content_client "github.com/vostrok/contentd/rpcclient"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
+	reporter_client "github.com/vostrok/reporter/rpcclient"
 	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/db"
 	rec "github.com/vostrok/utils/rec"
@@ -52,6 +54,7 @@ func Init(
 	name string,
 	serviceConf MTServiceConfig,
 	inMemConfig inmem_client.ClientConfig,
+	reporterConfig reporter_client.ClientConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
@@ -67,6 +70,10 @@ func Init(
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
+	if err := reporter_client.Init(reporterConfig); err != nil && reporterConfig.Enabled {
+		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
+	}
+
 	svc.conf = serviceConf
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
 	initMetrics(appName)

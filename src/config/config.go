@@ -12,6 +12,7 @@ import (
 	content_client "github.com/vostrok/contentd/rpcclient"
 	inmem_client "github.com/vostrok/inmem/rpcclient"
 	"github.com/vostrok/mt_manager/src/service"
+	reporter_client "github.com/vostrok/reporter/rpcclient"
 	"github.com/vostrok/utils/amqp"
 	"github.com/vostrok/utils/db"
 )
@@ -21,14 +22,15 @@ type ServerConfig struct {
 }
 
 type AppConfig struct {
-	AppName              string                      `yaml:"app_name"`
-	Server               ServerConfig                `yaml:"server"`
-	Service              service.MTServiceConfig     `yaml:"service"`
-	InMemClientConfig    inmem_client.ClientConfig   `yaml:"inmem_client"`
-	ContentdClientConfig content_client.ClientConfig `yaml:"contentd_client"`
-	DbConf               db.DataBaseConfig           `yaml:"db"`
-	Publisher            amqp.NotifierConfig         `yaml:"publisher"`
-	Consumer             amqp.ConsumerConfig         `yaml:"consumer"`
+	AppName              string                       `yaml:"app_name"`
+	Server               ServerConfig                 `yaml:"server"`
+	Service              service.MTServiceConfig      `yaml:"service"`
+	InMemClientConfig    inmem_client.ClientConfig    `yaml:"inmem_client"`
+	ContentdClientConfig content_client.ClientConfig  `yaml:"contentd_client"`
+	ReporterClient       reporter_client.ClientConfig `yaml:"reporter_client"`
+	DbConf               db.DataBaseConfig            `yaml:"db"`
+	Publisher            amqp.NotifierConfig          `yaml:"publisher"`
+	Consumer             amqp.ConsumerConfig          `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {
