@@ -22,7 +22,10 @@ rm:
 build:
 	export GOOS=linux; export GOARCH=amd64; \
 	sed -i "s/%VERSION%/$(VERSION)/g" /home/centos/vostrok/utils/metrics/metrics.go; \
-  go build -ldflags "-s -w" -o bin/mt_manager-linux-amd64 ; cp bin/mt_manager-linux-amd64 ~/linkit; cp dev/mt_manager.yml  ~/linkit/;
+  go build -ldflags "-s -w" -o bin/mt_manager-linux-amd64 ;
+
+cp:
+	cp bin/mt_manager-linux-amd64 ~/linkit; cp dev/mt_manager.yml  ~/linkit/;
 
 metrics:
 	curl http://localhost:50305/debug/vars

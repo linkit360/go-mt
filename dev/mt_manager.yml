@@ -13,7 +13,7 @@ content_client:
 
 reporter_client:
   enabled: true
-  dsn: :50316
+  dsn: :50315
   timeout: 10
 
 service:
@@ -24,7 +24,7 @@ service:
     restore_pixels: restore_pixels
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -113,7 +113,7 @@ service:
       1002: Connection Refused. Cannot access Telco API
 
   cheese:
-    enabled: true
+    enabled: false
     operator_name: cheese
     country_code: 66
     mcc: 520
