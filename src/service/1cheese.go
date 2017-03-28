@@ -7,6 +7,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
+	reporter_client "github.com/vostrok/reporter/rpcclient"
+	reporter_collector "github.com/vostrok/reporter/server/src/collector"
 	"github.com/vostrok/utils/amqp"
 	queue_config "github.com/vostrok/utils/config"
 	m "github.com/vostrok/utils/metrics"
@@ -24,9 +26,9 @@ type cheese struct {
 type CheeseConfig struct {
 	Enabled         bool                            `yaml:"enabled" default:"false"`
 	OperatorName    string                          `yaml:"operator_name" default:"cheese"`
-	AisMNC          string                          `yaml:"ais_mnc" `
-	DtacMNC         string                          `yaml:"dtac_mnc" `
-	TruehMNC        string                          `yaml:"trueh_mnc" `
+	AisMNC          string                          `yaml:"ais_mnc"`
+	DtacMNC         string                          `yaml:"dtac_mnc"`
+	TruehMNC        string                          `yaml:"trueh_mnc"`
 	MCC             string                          `yaml:"mcc"`
 	CountryCode     int64                           `yaml:"country_code" default:"66"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
@@ -121,6 +123,13 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		} else {
+			// no response processing, so it's here
+			reporter_client.IncPaid(reporter_collector.Collect{
+				CampaignId:        r.CampaignId,
+				OperatorCode:      r.OperatorCode,
+				Msisdn:            r.Msisdn,
+				TransactionResult: "paid",
+			})
 			ch.m.AddToDbSuccess.Inc()
 		}
 
