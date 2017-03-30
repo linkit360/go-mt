@@ -7,12 +7,12 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	content_client "github.com/vostrok/contentd/rpcclient"
-	inmem_client "github.com/vostrok/inmem/rpcclient"
-	reporter_client "github.com/vostrok/reporter/rpcclient"
-	"github.com/vostrok/utils/amqp"
-	"github.com/vostrok/utils/db"
-	rec "github.com/vostrok/utils/rec"
+	content_client "github.com/linkit360/go-contentd/rpcclient"
+	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
+	"github.com/linkit360/go-utils/amqp"
+	"github.com/linkit360/go-utils/db"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 var svc MTService
@@ -71,7 +71,7 @@ func Init(
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
 	if err := reporter_client.Init(reporterConfig); err != nil && reporterConfig.Enabled {
-		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
+		log.Error(fmt.Errorf("reporter_client.Init: %s", err.Error()))
 	}
 
 	svc.conf = serviceConf

@@ -7,7 +7,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	rec "github.com/vostrok/utils/rec"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 type EventNotifyTarifficate struct {

@@ -13,15 +13,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	content_client "github.com/vostrok/contentd/rpcclient"
-	content_service "github.com/vostrok/contentd/service"
-	inmem_client "github.com/vostrok/inmem/rpcclient"
-	yondu_service "github.com/vostrok/operator/ph/yondu/src/service"
-	transaction_log_service "github.com/vostrok/qlistener/src/service"
-	"github.com/vostrok/utils/amqp"
-	queue_config "github.com/vostrok/utils/config"
-	m "github.com/vostrok/utils/metrics"
-	rec "github.com/vostrok/utils/rec"
+	content_client "github.com/linkit360/go-contentd/rpcclient"
+	content_service "github.com/linkit360/go-contentd/service"
+	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	yondu_service "github.com/linkit360/go-operator/ph/yondu/src/service"
+	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
+	"github.com/linkit360/go-utils/amqp"
+	queue_config "github.com/linkit360/go-utils/config"
+	m "github.com/linkit360/go-utils/metrics"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 type yondu struct {
@@ -40,7 +40,7 @@ type YonduConfig struct {
 	Enabled            bool                            `yaml:"enabled" default:"false"`
 	OperatorName       string                          `yaml:"operator_name" default:"yondu"`
 	OperatorCode       int64                           `yaml:"operator_code" default:"51501"`
-	CountryCode        int64                           `yaml:"country_code" default:"515"`
+	CountryCode        int64                           `yaml:"country_code" default:"63"`
 	Location           string                          `yaml:"location"`
 	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Content            ContentConfig                   `yaml:"content"`
@@ -545,7 +545,7 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 			Msisdn:           e.EventData.Params.Msisdn,
 			OperatorToken:    e.EventData.Params.RRN,
 			OperatorCode:     y.conf.OperatorCode,
-			CountryCode:      r.CountryCode,
+			CountryCode:      y.conf.CountryCode,
 			Error:            r.OperatorErr,
 			Price:            r.Price,
 			ServiceId:        r.ServiceId,

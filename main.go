@@ -5,7 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/vostrok/mt_manager/src"
+	"github.com/linkit360/go-mt/src"
 )
 
 func main() {

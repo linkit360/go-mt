@@ -10,10 +10,10 @@ import (
 	amqp_driver "github.com/streadway/amqp"
 
 	"database/sql"
-	"github.com/vostrok/utils/amqp"
-	queue_config "github.com/vostrok/utils/config"
-	m "github.com/vostrok/utils/metrics"
-	rec "github.com/vostrok/utils/rec"
+	"github.com/linkit360/go-utils/amqp"
+	queue_config "github.com/linkit360/go-utils/config"
+	m "github.com/linkit360/go-utils/metrics"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 type qrtech struct {

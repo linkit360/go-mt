@@ -6,8 +6,8 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	inmem_client "github.com/vostrok/inmem/rpcclient"
-	rec "github.com/vostrok/utils/rec"
+	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 // chech functions for MO, retries, responses

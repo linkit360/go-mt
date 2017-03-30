@@ -7,12 +7,12 @@ import (
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
-	reporter_client "github.com/vostrok/reporter/rpcclient"
-	reporter_collector "github.com/vostrok/reporter/server/src/collector"
-	"github.com/vostrok/utils/amqp"
-	queue_config "github.com/vostrok/utils/config"
-	m "github.com/vostrok/utils/metrics"
-	rec "github.com/vostrok/utils/rec"
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
+	reporter_collector "github.com/linkit360/go-reporter/server/src/collector"
+	"github.com/linkit360/go-utils/amqp"
+	queue_config "github.com/linkit360/go-utils/config"
+	m "github.com/linkit360/go-utils/metrics"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 type cheese struct {

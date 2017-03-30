@@ -5,7 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	m "github.com/vostrok/utils/metrics"
+	m "github.com/linkit360/go-utils/metrics"
 )
 
 var (

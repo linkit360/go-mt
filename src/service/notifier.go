@@ -7,10 +7,10 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	pixels "github.com/vostrok/pixels/src/notifier"
-	transaction_log_service "github.com/vostrok/qlistener/src/service"
-	"github.com/vostrok/utils/amqp"
-	rec "github.com/vostrok/utils/rec"
+	pixels "github.com/linkit360/go-pixel/src/notifier"
+	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
+	"github.com/linkit360/go-utils/amqp"
+	rec "github.com/linkit360/go-utils/rec"
 )
 
 func startRetry(msg rec.Record, retriesEnabled bool) error {

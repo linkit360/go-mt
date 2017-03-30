@@ -9,12 +9,12 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
 
-	content_client "github.com/vostrok/contentd/rpcclient"
-	inmem_client "github.com/vostrok/inmem/rpcclient"
-	"github.com/vostrok/mt_manager/src/service"
-	reporter_client "github.com/vostrok/reporter/rpcclient"
-	"github.com/vostrok/utils/amqp"
-	"github.com/vostrok/utils/db"
+	content_client "github.com/linkit360/go-contentd/rpcclient"
+	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	"github.com/linkit360/go-mt/src/service"
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
+	"github.com/linkit360/go-utils/amqp"
+	"github.com/linkit360/go-utils/db"
 )
 
 type ServerConfig struct {
@@ -34,7 +34,7 @@ type AppConfig struct {
 }
 
 func LoadConfig() AppConfig {
-	cfg := flag.String("config", "dev/mt_manager.yml", "configuration yml file")
+	cfg := flag.String("config", "dev/mt.yml", "configuration yml file")
 	flag.Parse()
 	var appConfig AppConfig
 
