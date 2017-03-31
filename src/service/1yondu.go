@@ -648,6 +648,7 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 		}).Error("cannot get rec")
 		return rec.Record{}, err
 	}
+
 	if r.SubscriptionId == 0 {
 		r, err = rec.GetRetryByMsisdn(req.Params.Msisdn, "pending")
 		if err != nil && err != sql.ErrNoRows {
@@ -699,18 +700,20 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 	} else {
 		r.SubscriptionStatus = "failed"
 	}
-	r.SentAt, err = time.Parse("20060102150405", req.Params.Timestamp)
+
+	unixTime, err := strconv.ParseInt(req.Params.Timestamp, 10, 64)
 	if err != nil {
 		y.m.DNParseTimeError.Inc()
-
 		log.WithFields(log.Fields{
 			"tid":       r.Tid,
-			"error":     err.Error(),
+			"error":     fmt.Errorf("strconv.ParseInt: %s", err.Error()),
 			"timestamp": req.Params.Timestamp,
 		}).Error("cannot parse dn time")
 		r.SentAt = time.Now().UTC()
-		err = nil
+	} else {
+		r.SentAt = time.Unix(unixTime, 0)
 	}
+
 	return r, nil
 }
 
