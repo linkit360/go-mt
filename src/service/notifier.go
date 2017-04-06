@@ -52,6 +52,9 @@ func writeSubscriptionPeriodic(msg rec.Record) error {
 func unsubscribe(msg rec.Record) error {
 	return _notifyDBAction("Unsubscribe", msg)
 }
+func unsubscribeAll(msg rec.Record) error {
+	return _notifyDBAction("UnsubscribeAll", msg)
+}
 func writeTransaction(msg rec.Record) error {
 	return _notifyDBAction("WriteTransaction", msg)
 }

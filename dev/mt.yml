@@ -64,7 +64,7 @@ service:
     sms_requests: mobilink_requests
 
   yondu:
-    enabled: true
+    enabled: false
     operator_name: yondu
     operator_code: 51501
     country_code: 63
@@ -151,6 +151,22 @@ service:
       name: qrtech_dn
       enabled: true
       prefetch_count: 10
+      threads_count: 10
+
+  beeline:
+    enabled: true
+    operator_name: beeline
+    mccmnc: 25099
+    country_code: 7
+    new:
+      name: beeline_mo
+      enabled: true
+      prefetch_count: 10
+      threads_count: 10
+    smpp:
+      name: beeline_smpp
+      prefetch_count: 10
+      enabled: true
       threads_count: 10
 
 db:

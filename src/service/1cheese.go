@@ -16,11 +16,10 @@ import (
 )
 
 type cheese struct {
-	conf                CheeseConfig
-	m                   *CheeseMetrics
-	activeSubscriptions *activeSubscriptions
-	MOCh                <-chan amqp_driver.Delivery
-	MOConsumer          *amqp.Consumer
+	conf       CheeseConfig
+	m          *CheeseMetrics
+	MOCh       <-chan amqp_driver.Delivery
+	MOConsumer *amqp.Consumer
 }
 
 type CheeseConfig struct {
@@ -81,9 +80,9 @@ type CheeseMetrics struct {
 func (ch *cheese) initMetrics() {
 
 	ym := &CheeseMetrics{
-		MODropped:      m.NewGauge(appName, ch.conf.OperatorName, "mo_dropped", "yondu mo dropped"),
-		AddToDBErrors:  m.NewGauge(appName, ch.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
-		AddToDbSuccess: m.NewGauge(appName, ch.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
+		MODropped:      m.NewGauge(appName, ch.conf.OperatorName, "mo_dropped", "cheese mo dropped"),
+		AddToDBErrors:  m.NewGauge(appName, ch.conf.OperatorName, "add_to_db_errors", "cheese subscription add to db errors"),
+		AddToDbSuccess: m.NewGauge(appName, ch.conf.OperatorName, "add_to_db_success", "cheese subscription add to db success"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
