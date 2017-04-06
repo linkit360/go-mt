@@ -182,6 +182,7 @@ func (be *beeline) processMO(deliveries <-chan amqp_driver.Delivery) {
 			})
 			be.m.AddToDbSuccess.Inc()
 			be.m.MO.Inc()
+			SinceLastSuccessPay.Set(.0)
 		}
 	ack:
 		if err := msg.Ack(false); err != nil {
@@ -290,6 +291,12 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 			r.SubscriptionStatus = "paid"
 			r.Result = "paid"
 			writeTransaction(r)
+			reporter_client.IncPaid(reporter_collector.Collect{
+				CampaignId:        r.CampaignId,
+				OperatorCode:      r.OperatorCode,
+				Msisdn:            r.Msisdn,
+				TransactionResult: "paid",
+			})
 		case 6:
 			tl.ResponseDecision = "unsubscribe all"
 			logCtx.Debug(tl.ResponseDecision)

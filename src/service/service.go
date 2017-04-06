@@ -72,8 +72,8 @@ func Init(
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
-	if err := reporter_client.Init(reporterConfig); err != nil && reporterConfig.Enabled {
-		log.Error(fmt.Errorf("reporter_client.Init: %s", err.Error()))
+	if err := reporter_client.Init(reporterConfig); err != nil {
+		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
 	}
 
 	svc.conf = serviceConf
