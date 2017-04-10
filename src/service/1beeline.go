@@ -267,7 +267,6 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 			RequestBody:   string(fieldsJSON),
 			ResponseBody:  "",
 			ResponseCode:  200,
-			Notice:        r.Notice,
 			Type:          "smpp",
 		}
 

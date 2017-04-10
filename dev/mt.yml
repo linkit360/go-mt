@@ -23,7 +23,7 @@ service:
     restore_pixels: restore_pixels
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -153,7 +153,7 @@ service:
       threads_count: 10
 
   beeline:
-    enabled: true
+    enabled: false
     operator_name: beeline
     mccmnc: 25099
     country_code: 7

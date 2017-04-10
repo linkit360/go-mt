@@ -361,9 +361,6 @@ type MobilinkMetrics struct {
 	ResponseDropped          m.Gauge
 	ResponseErrors           m.Gauge
 	ResponseSuccess          m.Gauge
-	ResponseSMSDropped       m.Gauge
-	ResponseSMSErrors        m.Gauge
-	ResponseSMSSuccess       m.Gauge
 	SinceRetryStartProcessed prometheus.Gauge
 }
 
@@ -377,9 +374,6 @@ func (mb *mobilink) initMetrics() {
 		ResponseDropped:          m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
 		ResponseErrors:           m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
 		ResponseSuccess:          m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
-		ResponseSMSDropped:       m.NewGauge(appName, mb.conf.OperatorName, "response_sms_dropped", "sms response dropped"),
-		ResponseSMSErrors:        m.NewGauge(appName, mb.conf.OperatorName, "response_sms_errors", "errors"),
-		ResponseSMSSuccess:       m.NewGauge(appName, mb.conf.OperatorName, "response_sms_success", "success"),
 		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
 	}
 	go func() {
@@ -392,9 +386,6 @@ func (mb *mobilink) initMetrics() {
 			mbm.ResponseDropped.Update()
 			mbm.ResponseErrors.Update()
 			mbm.ResponseSuccess.Update()
-			mbm.ResponseSMSDropped.Update()
-			mbm.ResponseSMSErrors.Update()
-			mbm.ResponseSMSSuccess.Update()
 		}
 	}()
 	go func() {
@@ -511,55 +502,6 @@ func (mb *mobilink) smsSend(record rec.Record, msg string) error {
 			"msisdn": record.Msisdn,
 			"error":  err.Error(),
 		}).Error("cannot send sms")
-		return err
-	}
-	return nil
-}
-
-// ============================================================
-// sms responses
-func (mb *mobilink) processSMSResponses(deliveries <-chan amqp_driver.Delivery) {
-	for msg := range deliveries {
-		var e EventNotifyTarifficate
-		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			mb.m.ResponseSMSDropped.Inc()
-
-			log.WithFields(log.Fields{
-				"error":    err.Error(),
-				"msg":      "dropped",
-				"response": string(msg.Body),
-			}).Error("failed")
-			goto ack
-		}
-
-		if err := handleSMSResponse(e.EventData); err != nil {
-			mb.m.ResponseSMSErrors.Inc()
-			msg.Nack(false, true)
-			continue
-		}
-		mb.m.ResponseSMSSuccess.Inc()
-	ack:
-		if err := msg.Ack(false); err != nil {
-			log.WithFields(log.Fields{
-				"tid":   e.EventData.Tid,
-				"error": err.Error(),
-			}).Error("cannot ack")
-			time.Sleep(time.Second)
-			goto ack
-		}
-
-	}
-}
-func handleSMSResponse(record rec.Record) error {
-	smsTranasction := record
-	smsTranasction.Result = "sms"
-	if smsTranasction.OperatorErr != "" {
-		smsTranasction.Result = "sms failed"
-	} else {
-		smsTranasction.Result = "sms sent"
-	}
-	if err := writeTransaction(smsTranasction); err != nil {
-		Errors.Inc()
 		return err
 	}
 	return nil
