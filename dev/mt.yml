@@ -54,11 +54,7 @@ service:
       enabled: true
       prefetch_count: 100
       threads_count: 10
-    sms_responses:
-      name: mobilink_sms_responses
-      enabled: true
-      prefetch_count: 100
-      threads_count: 10
+
     requests: mobilink_requests
     sms_requests: mobilink_requests
 
