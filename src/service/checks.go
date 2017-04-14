@@ -173,6 +173,14 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 		}
 		return nil
 	}
+	if r.SubscriptionStatus == "blacklisted" {
+		if err := writeSubscriptionStatus(*r); err != nil {
+			Errors.Inc()
+			return err
+		}
+		logCtx.Info("blacklisted")
+		return nil
+	}
 
 	if r.Paid {
 		SinceLastSuccessPay.Set(.0)

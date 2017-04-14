@@ -697,6 +697,8 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 		r.SubscriptionStatus = "paid" // for operator transaction log
 	} else if req.Params.Code == "414" {
 		r.SubscriptionStatus = "postpaid"
+	} else if req.Params.Code == "1003" {
+		r.SubscriptionStatus = "blacklisted"
 	} else {
 		r.SubscriptionStatus = "failed"
 	}

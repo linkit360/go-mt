@@ -46,7 +46,6 @@ type MobilinkConfig struct {
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	MO              queue_config.ConsumeQueueConfig `yaml:"mo"`
 	Responses       queue_config.ConsumeQueueConfig `yaml:"responses"`
-	SMSResponses    queue_config.ConsumeQueueConfig `yaml:"sms_responses"`
 }
 
 // if it is disabled, do not even alloc memory
@@ -126,27 +125,6 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 			mbConfig.Responses.ThreadsCount,
 			mbConfig.Responses.Name,
 			mbConfig.Responses.Name,
-		)
-	}
-	if mbConfig.SMSResponses.Enabled {
-		if mbConfig.SMSResponses.Name == "" {
-			log.Fatal("empty queue name sms responses")
-		}
-		mb.SMSResponsesConsumer = amqp.NewConsumer(
-			consumerConfig,
-			mbConfig.SMSResponses.Name,
-			mbConfig.SMSResponses.PrefetchCount,
-		)
-		if err := mb.SMSResponsesConsumer.Connect(); err != nil {
-			log.Fatal("rbmq consumer connect:", err.Error())
-		}
-		amqp.InitQueue(
-			mb.SMSResponsesConsumer,
-			mb.SMSResponsesCh,
-			mb.processSMSResponses,
-			mbConfig.SMSResponses.ThreadsCount,
-			mbConfig.SMSResponses.Name,
-			mbConfig.SMSResponses.Name,
 		)
 	}
 	log.WithFields(log.Fields{
