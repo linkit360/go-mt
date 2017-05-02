@@ -11,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	"bitbucket.org/opexi/app/handlers/content"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	inmem_service "github.com/linkit360/go-inmem/service"
 	"github.com/linkit360/go-utils/amqp"
@@ -209,7 +208,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 		// setup rec
 		r = ns.EventData
-		mb.setServiceFields(r, s)
+		mb.setServiceFields(&r, s)
 
 		// check
 		if err = checkMO(&r, mb.isRejectedFn, mb.setActiveSubscriptionCache); err != nil {
@@ -329,6 +328,17 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 		goto unsubscribe
 	}
 
+	downloadedContentCount, err := rec.GetCountOfDownloadedContent(r.SubscriptionId)
+	if err != nil {
+		log.WithField("error", err.Error()).Error("cannot get count of downloaded content")
+		downloadedContentCount = 2
+	}
+	if downloadedContentCount <= 1 && timePassedSinsceSubscribe > gracePeriod {
+		log.WithField("reason", "too view content downloaded").Info("deactivate subscription")
+		flagUnsubscribe = true
+		goto unsubscribe
+	}
+
 unsubscribe:
 	if flagUnsubscribe {
 		r.SubscriptionStatus = "inactive"
@@ -351,7 +361,7 @@ unsubscribe:
 
 func (mb *mobilink) sendContent() error {
 	if !mb.conf.Content.Enabled {
-		return
+		return nil
 	}
 	subscriptions, err := rec.GetLiveTodayPeriodics(mb.conf.Content.FetchLimit)
 	if err != nil {
@@ -372,7 +382,7 @@ func (mb *mobilink) sendContent() error {
 			}).Error("cannot get service by id")
 			return err
 		}
-		mb.setServiceFields(subscr, s)
+		mb.setServiceFields(&subscr, s)
 
 		contentHash, err := getContentUniqueHash(subscr)
 		if err != nil {

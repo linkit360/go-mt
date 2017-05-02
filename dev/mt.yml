@@ -27,17 +27,10 @@ service:
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
-    retries:
-      enabled: false
-      period: 1
-      paid_once_hours: 24
-      queue_free_size: 3500
-      fetch_limit: 2500
-      check_queues_free:
-      - "mobilink_requests"
-      - "mt_manager"
-    periodic:
-      enabled: false
+
+    content:
+      enabled: true
+      fetch_period_seconds: 10
       fetch_limit: 1
     new:
       name: mobilink_new_subscriptions
@@ -49,14 +42,15 @@ service:
       enabled: true
       prefetch_count: 100
       threads_count: 10
-    responses:
+
+    sms: mobilink_sms_requests
+    charge_req: mobilink_requests
+
+    charge_resp:
       name: mobilink_responses
       enabled: true
       prefetch_count: 100
       threads_count: 10
-
-    requests: mobilink_requests
-    sms_requests: mobilink_requests
 
   yondu:
     enabled: false

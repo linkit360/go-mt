@@ -370,7 +370,7 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 	r.Price = int(service.Price) * 100
 	r.DelayHours = service.DelayHours
 	r.PaidHours = service.PaidHours
-	r.RetryDays = service.KeepDays
+	r.RetryDays = service.RetryDays
 	r.Periodic = false
 	return
 }
