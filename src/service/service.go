@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
+	content_service "github.com/linkit360/go-contentd/service"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	reporter_client "github.com/linkit360/go-reporter/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
@@ -87,6 +89,66 @@ func Init(
 	svc.bee = initBeeline(serviceConf.Beeline, consumerConfig)
 }
 
+func publish(queueName, eventName string, r rec.Record, priorityOptional ...uint8) (err error) {
+	priority := uint8(0)
+	if len(priorityOptional) > 0 {
+		priority = priorityOptional[0]
+	}
+
+	event := amqp.EventNotify{
+		EventName: eventName,
+		EventData: r,
+	}
+	var body []byte
+	body, err = json.Marshal(event)
+	if err != nil {
+		err = fmt.Errorf("json.Marshal: %s", err.Error())
+		return
+	}
+	svc.notifier.Publish(amqp.AMQPMessage{
+		QueueName: queueName,
+		Priority:  priority,
+		Body:      body,
+	})
+	return nil
+}
+
+func getContentUniqueHash(r rec.Record) (string, error) {
+	logCtx := log.WithFields(log.Fields{
+		"tid": r.Tid,
+	})
+	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
+		Msisdn:         r.Msisdn,
+		Tid:            r.Tid,
+		ServiceId:      r.ServiceId,
+		CampaignId:     r.CampaignId,
+		OperatorCode:   r.OperatorCode,
+		CountryCode:    r.CountryCode,
+		SubscriptionId: r.SubscriptionId,
+	})
+
+	if contentProperties.Error != "" {
+		ContentdRPCDialError.Inc()
+		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
+		logCtx.WithFields(log.Fields{
+			"serviceId": r.ServiceId,
+			"error":     err.Error(),
+		}).Error("contentd internal error")
+		return "", err
+	}
+	if err != nil {
+		ContentdRPCDialError.Inc()
+		err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
+		logCtx.WithFields(log.Fields{
+			"serviceId": r.ServiceId,
+			"error":     err.Error(),
+		}).Error("cannot get unique content url")
+		return "", err
+	}
+
+	return contentProperties.UniqueUrl, nil
+
+}
 func SaveState() {
 	log.WithField("pid", os.Getpid()).Info("save state")
 }

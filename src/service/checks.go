@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -11,7 +10,7 @@ import (
 )
 
 // chech functions for MO, retries, responses
-func checkMO(record *rec.Record, getActiveSubscriptionFn func(r rec.Record) bool, setActiveSubscriptionFn func(r rec.Record)) error {
+func checkMO(record *rec.Record, isRejectedFn func(r rec.Record) bool, setActiveSubscriptionFn func(r rec.Record)) error {
 	logCtx := log.WithFields(log.Fields{
 		"tid": record.Tid,
 	})
@@ -20,7 +19,7 @@ func checkMO(record *rec.Record, getActiveSubscriptionFn func(r rec.Record) bool
 	// if msisdn already was subscribed on this subscription in paid hours time
 	// give them content, and skip tariffication
 	if record.PaidHours > 0 {
-		hasPrevious := getActiveSubscriptionFn(*record)
+		hasPrevious := isRejectedFn(*record)
 		if hasPrevious {
 			Rejected.Inc()
 
@@ -29,11 +28,9 @@ func checkMO(record *rec.Record, getActiveSubscriptionFn func(r rec.Record) bool
 			record.SubscriptionStatus = "rejected"
 
 			if err := writeSubscriptionStatus(*record); err != nil {
-				Errors.Inc()
 				return err
 			}
 			if err := writeTransaction(*record); err != nil {
-				Errors.Inc()
 				return err
 			}
 			return nil
@@ -224,41 +221,6 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 	if err := writeTransaction(*r); err != nil {
 		Errors.Inc()
 		return err
-	}
-
-	if r.AttemptsCount == 0 && r.SubscriptionStatus == "failed" {
-		if err := startRetry(*r, retriesEnabled); err != nil {
-			Errors.Inc()
-			return err
-		}
-	}
-
-	if r.AttemptsCount >= 1 {
-		now := time.Now()
-
-		logCtx.WithFields(log.Fields{
-			"createdAt":      r.CreatedAt,
-			"spentInRetries": int(now.Sub(r.CreatedAt).Hours()),
-		}).Debug("retry")
-
-		remove := false
-		if now.Sub(r.CreatedAt).Hours() > (time.Duration(24*r.KeepDays) * time.Hour).Hours() {
-			remove = true
-		}
-		if r.Result == "retry_paid" {
-			remove = true
-		}
-		if remove {
-			if err := removeRetry(*r); err != nil {
-				Errors.Inc()
-				return err
-			}
-		} else {
-			if err := touchRetry(*r); err != nil {
-				Errors.Inc()
-				return err
-			}
-		}
 	}
 	return nil
 }

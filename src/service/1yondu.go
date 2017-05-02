@@ -52,10 +52,14 @@ type YonduConfig struct {
 	DNResponseCode     map[string]string               `yaml:"dn_code"`
 	UnsubscribeMarkers []string                        `yaml:"unsubscribe"`
 }
+
 type ContentConfig struct {
-	SendEnabled bool   `yaml:"enabled"`
-	Url         string `yaml:"url"`
+	Enabled            bool   `yaml:"enabled"`
+	Url                string `yaml:"url"`
+	FetchLimit         int    `yaml:"fetch_limit"`
+	FetchPeriodSeconds int    `yaml:"fetch_period_seconds"`
 }
+
 type TextsConfig struct {
 	Rejected       string `yaml:"rejected"`
 	RejectedCharge string `yaml:"rejected_charge"`
@@ -243,7 +247,7 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 }
 
 func (y *yondu) sentContent(r rec.Record) (err error) {
-	if y.conf.Content.SendEnabled {
+	if y.conf.Content.Enabled {
 		log.Info("send content disabled")
 		return nil
 	}
@@ -261,37 +265,19 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		}).Error("cannot get service by id")
 		return
 	}
-	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
-		Msisdn:         r.Msisdn,
-		Tid:            r.Tid,
-		ServiceId:      r.ServiceId,
-		CampaignId:     r.CampaignId,
-		OperatorCode:   r.OperatorCode,
-		CountryCode:    r.CountryCode,
-		SubscriptionId: r.SubscriptionId,
-	})
-
-	if contentProperties.Error != "" {
-		ContentdRPCDialError.Inc()
-		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
-		logCtx.WithFields(log.Fields{
-			"serviceId": r.ServiceId,
-			"error":     err.Error(),
-		}).Error("contentd internal error")
-		return
-	}
+	contentHash, err := getContentUniqueHash(r)
 	if err != nil {
-		ContentdRPCDialError.Inc()
-		err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
+		Errors.Inc()
+		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
-			"serviceId": r.ServiceId,
-			"error":     err.Error(),
-		}).Error("cannot get unique content url")
-		return
+			"error":      err.Error(),
+			"service_id": r.ServiceId,
+		}).Error("cannot get service by id")
+		return err
 	}
+	url := y.conf.Content.Url + contentHash
+	r.SMSText = fmt.Sprintf(service.SMSOnContent, url)
 
-	url := y.conf.Content.Url + contentProperties.UniqueUrl
-	r.SMSText = fmt.Sprintf(service.SendContentTextTemplate, url)
 	if err = y.publishMT(r); err != nil {
 		logCtx.WithField("error", err.Error()).Error("send content")
 		return
@@ -487,7 +473,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		ServiceId:                campaign.ServiceId,
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
-		KeepDays:                 svc.KeepDays,
+		RetryDays:                svc.RetryDays,
 		Price:                    100 * int(svc.Price),
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
@@ -826,7 +812,7 @@ type activeSubscriptions struct {
 
 func (y *yondu) initActiveSubscriptionsCache() {
 	// load all active subscriptions
-	prev, err := rec.LoadActiveSubscriptions(0)
+	prev, err := rec.LoadActiveSubscriptions()
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}

@@ -274,7 +274,7 @@ func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 
 func (qr *qrtech) initActiveSubscriptionsCache() {
 	// load all active subscriptions
-	prev, err := rec.LoadActiveSubscriptions(0)
+	prev, err := rec.LoadActiveSubscriptions()
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}

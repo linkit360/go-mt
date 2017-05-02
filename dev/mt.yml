@@ -23,7 +23,7 @@ service:
     restore_pixels: restore_pixels
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -59,7 +59,7 @@ service:
     sms_requests: mobilink_requests
 
   yondu:
-    enabled: true
+    enabled: false
     operator_name: yondu
     operator_code: 51501
     country_code: 63
