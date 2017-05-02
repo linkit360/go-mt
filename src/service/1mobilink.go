@@ -331,9 +331,9 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 	downloadedContentCount, err := rec.GetCountOfDownloadedContent(r.SubscriptionId)
 	if err != nil {
 		log.WithField("error", err.Error()).Error("cannot get count of downloaded content")
-		downloadedContentCount = 2
+		downloadedContentCount = s.MinimalTouchTimes
 	}
-	if downloadedContentCount <= 1 && timePassedSinsceSubscribe > gracePeriod {
+	if downloadedContentCount < s.MinimalTouchTimes && timePassedSinsceSubscribe > gracePeriod {
 		log.WithField("reason", "too view content downloaded").Info("deactivate subscription")
 		flagUnsubscribe = true
 		goto unsubscribe
