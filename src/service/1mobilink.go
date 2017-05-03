@@ -17,6 +17,9 @@ import (
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
 	rec "github.com/linkit360/go-utils/rec"
+	"net/http"
+	"net/url"
+	"sync"
 )
 
 // Mobilink telco handlers.
@@ -25,6 +28,7 @@ import (
 type mobilink struct {
 	conf              MobilinkConfig
 	m                 *MobilinkMetrics
+	periodicSync      *sync.WaitGroup
 	prevCache         *cache.Cache
 	NewCh             <-chan amqp_driver.Delivery
 	NewConsumer       *amqp.Consumer
@@ -39,12 +43,19 @@ type MobilinkConfig struct {
 	OperatorName    string                          `yaml:"operator_name" default:"mobilink"`
 	OperatorCode    int64                           `yaml:"operator_code" default:"41001"`
 	RejectedHours   int                             `yaml:"rejected_hours" default:"24"`
+	Channel         ChannelNotifyConfig             `yaml:"channel"`
 	Content         ContentConfig                   `yaml:"content"`
+	Periodic        PeriodicConfig                  `yaml:"periodic"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	MO              queue_config.ConsumeQueueConfig `yaml:"mo"`
 	SMSRequests     string                          `yaml:"sms"`
 	Requests        string                          `yaml:"charge_req"`
 	Responses       queue_config.ConsumeQueueConfig `yaml:"charge_resp"`
+}
+
+type ChannelNotifyConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Url     string `yaml:"url"`
 }
 
 func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *mobilink {
@@ -81,18 +92,76 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 		mb.processResponses,
 	)
 
-	if !mb.conf.Content.Enabled {
+	if mb.conf.Content.Enabled {
+		go func() {
+			for range time.Tick(time.Duration(mb.conf.Content.FetchPeriodSeconds) * time.Second) {
+				mb.sendContent()
+			}
+		}()
+
+	} else {
 		log.Info("send content disabled")
-		return mb
 	}
 
-	go func() {
-		for range time.Tick(time.Duration(mb.conf.Content.FetchPeriodSeconds) * time.Second) {
-			mb.sendContent()
-		}
-	}()
+	if mb.conf.Periodic.Enabled {
+		go func() {
+			for range time.Tick(time.Duration(mb.conf.Periodic.Period) * time.Second) {
+				mb.processPeriodic()
+			}
+		}()
+	} else {
+		log.Info("periodic disabled")
+	}
 
 	return mb
+}
+
+// ============================================================
+// periodics: get subscriptions in database and send charge request
+func (mb *mobilink) processPeriodic() {
+	if !mb.conf.Periodic.Enabled {
+		return nil
+	}
+	begin := time.Now()
+	subscriptions, err := rec.GetPeriodicsOnceADay(mb.conf.Periodic.FetchLimit)
+	if err != nil {
+		return err
+	}
+	mb.m.GetPeriodicsDuration.Observe(time.Since(begin).Seconds())
+
+	begin = time.Now()
+	for _, subscr := range subscriptions {
+		mb.periodicSync.Add(1)
+
+		logCtx := log.WithFields(log.Fields{
+			"tid":    subscr.Tid,
+			"action": "periodic",
+		})
+
+		s, err := inmem_client.GetServiceById(subscr.ServiceId)
+		if err != nil {
+			Errors.Inc()
+			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error":      err.Error(),
+				"service_id": subscr.ServiceId,
+			}).Error("cannot get service by id")
+			return err
+		}
+		mb.setServiceFields(&subscr, s)
+
+		// send charge req
+		if err := publish(mb.conf.Requests, "charge", subscr, 1); err != nil {
+
+			err = fmt.Errorf("publish: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Error("cannot send charge request")
+			return err
+		}
+	}
+	mb.periodicSync.Wait()
+	mb.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
 
 type EventNotifyNewSubscription struct {
@@ -229,6 +298,8 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}
 			r.SMSText = s.SMSOnSubscribe
 			publish(mb.conf.SMSRequests, "send_sms", r)
+
+			mb.sendChannelNotify("mo", r)
 		}
 
 	ack:
@@ -273,6 +344,8 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
+		mb.sendChannelNotify("renewal", e.EventName)
+
 		mb.m.ResponseSuccess.Inc()
 	ack:
 		if err := msg.Ack(false); err != nil {
@@ -347,6 +420,8 @@ unsubscribe:
 		}
 		r.SMSText = s.SMSOnUnsubscribe
 		publish(mb.conf.SMSRequests, "send_sms", r)
+
+		mb.sendChannelNotify("unsub", r)
 	}
 
 	// send everything, pixels module will decide to send pixel, or not to send
@@ -359,11 +434,69 @@ unsubscribe:
 	return nil
 }
 
+func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
+	if !mb.conf.Channel.Enabled {
+		return
+	}
+	if r.Channel == "" {
+		return
+	}
+	v := url.Values{}
+	v.Set("msisdn", r.Msisdn)
+	if r.Paid {
+		v.Set("status", 1)
+	} else {
+		v.Set("status", 0)
+	}
+	eventNum := 0
+	if event == "mo" {
+		eventNum = 1
+	} else if event == "renewal" {
+		eventNum = 2
+	} else if event == "unsub" {
+		eventNum = 3
+	} else {
+		log.WithFields(log.Fields{
+			"tid":    r.Tid,
+			"msisdn": r.Msisdn,
+			"event":  event,
+		}).Error("wrong event type")
+	}
+	v.Set("event", eventNum)
+	v.Set("timestamp", time.Now().UTC().Format("20060102 15:04:05"))
+	channelUrl := mb.conf.Channel.Url + "?" + v.Encode()
+	resp, err := http.DefaultClient.Get(channelUrl)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"tid":    r.Tid,
+			"msisdn": r.Msisdn,
+			"event":  event,
+			"url":    channelUrl,
+			"error":  err.Error(),
+		}).Warn("error while channle notify")
+	}
+	if resp.Status != 200 {
+		log.WithFields(log.Fields{
+			"tid":    r.Tid,
+			"msisdn": r.Msisdn,
+			"event":  event,
+			"url":    channelUrl,
+			"error":  resp.StatusCode,
+		}).Warn("channel notify status code is suspisious")
+	} else {
+		log.WithFields(log.Fields{
+			"tid":  r.Tid,
+			"url":  channelUrl,
+			"code": resp.StatusCode,
+		}).Info("channel notify")
+	}
+}
+
 func (mb *mobilink) sendContent() error {
 	if !mb.conf.Content.Enabled {
 		return nil
 	}
-	subscriptions, err := rec.GetLiveTodayPeriodics(mb.conf.Content.FetchLimit)
+	subscriptions, err := rec.GetLiveTodayPeriodicsForContent(mb.conf.Content.FetchLimit)
 	if err != nil {
 		return err
 	}
@@ -489,6 +622,8 @@ type MobilinkMetrics struct {
 	ResponseSuccess          m.Gauge
 	SMSResponseSuccess       m.Gauge
 	SinceRetryStartProcessed prometheus.Gauge
+	GetPeriodicsDuration     prometheus.Summary
+	ProcessPeriodicsDuration prometheus.Summary
 }
 
 func (mb *mobilink) initMetrics() {
@@ -503,6 +638,8 @@ func (mb *mobilink) initMetrics() {
 		ResponseSuccess:          m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
 		SMSResponseSuccess:       m.NewGauge(appName, mb.conf.OperatorName, "sms_response_success", "success"),
 		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
+		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
+		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {

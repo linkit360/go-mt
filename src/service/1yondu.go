@@ -162,7 +162,7 @@ func initYondu(yConf YonduConfig, consumerConfig amqp.ConsumerConfig, contentCon
 func (y *yondu) processPeriodic() {
 
 	begin := time.Now()
-	periodics, err := rec.GetPeriodics(
+	periodics, err := rec.GetPeriodicsSpecificTime(
 		y.conf.Periodic.FetchLimit,
 		y.conf.Periodic.FailedRepeatInMinutes,
 		y.conf.Periodic.IntervalType,

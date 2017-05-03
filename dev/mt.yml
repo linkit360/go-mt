@@ -28,6 +28,14 @@ service:
     operator_code: 41001
     rejected_hours: 720
 
+    channel:
+      enabled: true
+      url: http://pk2.slypee.com/support/notify.php
+
+    periodic:
+      enabled: true
+      fetch_limit: 10
+
     content:
       enabled: true
       fetch_period_seconds: 10
