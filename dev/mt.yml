@@ -29,15 +29,15 @@ service:
     rejected_hours: 720
 
     channel:
-      enabled: true
+      enabled: false
       url: http://pk2.slypee.com/support/notify.php
 
     periodic:
-      enabled: true
+      enabled: false
       fetch_limit: 10
 
     content:
-      enabled: true
+      enabled: false
       fetch_period_seconds: 10
       fetch_limit: 1
     new:

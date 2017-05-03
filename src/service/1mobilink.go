@@ -120,12 +120,12 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 // periodics: get subscriptions in database and send charge request
 func (mb *mobilink) processPeriodic() {
 	if !mb.conf.Periodic.Enabled {
-		return nil
+		return
 	}
 	begin := time.Now()
 	subscriptions, err := rec.GetPeriodicsOnceADay(mb.conf.Periodic.FetchLimit)
 	if err != nil {
-		return err
+		return
 	}
 	mb.m.GetPeriodicsDuration.Observe(time.Since(begin).Seconds())
 
@@ -146,7 +146,7 @@ func (mb *mobilink) processPeriodic() {
 				"error":      err.Error(),
 				"service_id": subscr.ServiceId,
 			}).Error("cannot get service by id")
-			return err
+			continue
 		}
 		mb.setServiceFields(&subscr, s)
 
@@ -157,8 +157,14 @@ func (mb *mobilink) processPeriodic() {
 			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 			}).Error("cannot send charge request")
-			return err
+			continue
 		}
+		begin := time.Now()
+		if err = rec.SetSubscriptionStatus("pending", subscr.SubscriptionId); err != nil {
+			return
+		}
+		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+
 	}
 	mb.periodicSync.Wait()
 	mb.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
@@ -177,6 +183,11 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 		var err error
+		var s inmem_service.Service
+
+		logCtx := log.WithFields(log.Fields{
+			"action": "send content",
+		})
 
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			mb.m.Dropped.Inc()
@@ -191,6 +202,9 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		}
 
 		r = ns.EventData
+		logCtx = logCtx.WithFields(log.Fields{
+			"tid": r.Tid,
+		})
 
 		// first checks
 		if r.Msisdn == "" || r.CampaignId == 0 {
@@ -205,6 +219,21 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			}).Error("failed")
 			goto ack
 		}
+
+		s, err = inmem_client.GetServiceById(r.ServiceId)
+		if err != nil {
+			Errors.Inc()
+			time.Sleep(1)
+
+			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error":      err.Error(),
+				"service_id": r.ServiceId,
+			}).Error("cannot get service by id")
+			msg.Nack(false, true)
+			continue
+		}
+		mb.setServiceFields(&r, s)
 
 		// add to database
 		if err = rec.AddNewSubscriptionToDB(&r); err != nil {
@@ -246,22 +275,15 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 // checks MO: set/get rejected cache, publish to telco
 func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
+
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 		var err error
-		s, err := inmem_client.GetServiceById(r.ServiceId)
-		if err != nil {
-			Errors.Inc()
-			time.Sleep(1)
 
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
-			log.WithFields(log.Fields{
-				"error":      err.Error(),
-				"service_id": r.ServiceId,
-			}).Error("cannot get service by id")
-			msg.Nack(false, true)
-			continue
-		}
+		logCtx := log.WithFields(log.Fields{
+			"action": "send content",
+		})
+
 		if err := json.Unmarshal(msg.Body, &ns); err != nil {
 			Errors.Inc()
 			mb.m.Dropped.Inc()
@@ -277,8 +299,9 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 		// setup rec
 		r = ns.EventData
-		mb.setServiceFields(&r, s)
-
+		logCtx = logCtx.WithFields(log.Fields{
+			"tid": r.Tid,
+		})
 		// check
 		if err = checkMO(&r, mb.isRejectedFn, mb.setActiveSubscriptionCache); err != nil {
 			Errors.Inc()
@@ -289,15 +312,19 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 			if err := publish(mb.conf.Requests, "charge", r, 1); err != nil {
 				Errors.Inc()
 
-				log.WithFields(log.Fields{
+				logCtx.WithFields(log.Fields{
 					"tid":   r.Tid,
 					"error": err.Error(),
 				}).Error("send to charge")
 				msg.Nack(false, true)
 				continue
 			}
-			r.SMSText = s.SMSOnSubscribe
-			publish(mb.conf.SMSRequests, "send_sms", r)
+			if r.SMSText == "" {
+				Errors.Inc()
+				logCtx.WithFields(log.Fields{}).Error("empty text for sms subscribe")
+			} else {
+				publish(mb.conf.SMSRequests, "send_sms", r)
+			}
 
 			mb.sendChannelNotify("mo", r)
 		}
@@ -306,7 +333,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		if err := msg.Ack(false); err != nil {
 			Errors.Inc()
 
-			log.WithFields(log.Fields{
+			logCtx.WithFields(log.Fields{
 				"error": err.Error(),
 			}).Error("cannot ack")
 			time.Sleep(time.Second)
@@ -316,10 +343,12 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 }
 
 func (mb *mobilink) setServiceFields(r *rec.Record, s inmem_service.Service) {
+	r.Periodic = true
 	r.DelayHours = s.DelayHours
 	r.PaidHours = s.PaidHours
 	r.RetryDays = s.RetryDays
 	r.Price = 100 * int(s.Price)
+	r.SMSText = s.SMSOnSubscribe // for mo func
 }
 
 // ============================================================
@@ -344,7 +373,7 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		mb.sendChannelNotify("renewal", e.EventName)
+		mb.sendChannelNotify("renewal", e.EventData)
 
 		mb.m.ResponseSuccess.Inc()
 	ack:
@@ -375,6 +404,7 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 	gracePeriod := time.Duration(24*(s.RetryDays-s.GraceDays)) * time.Hour
 	allowedSubscriptionPeriod := time.Duration(24*s.RetryDays) * time.Hour
 	timePassedSinsceSubscribe := time.Now().UTC().Sub(mb.getSubscriptionStartTime(r))
+	var downloadedContentCount int
 
 	count, err := rec.GetCountOfFailedChargesFor(r.Msisdn, r.ServiceId, s.InactiveDays)
 	if err != nil {
@@ -401,7 +431,7 @@ func (mb *mobilink) handleResponse(r rec.Record) error {
 		goto unsubscribe
 	}
 
-	downloadedContentCount, err := rec.GetCountOfDownloadedContent(r.SubscriptionId)
+	downloadedContentCount, err = rec.GetCountOfDownloadedContent(r.SubscriptionId)
 	if err != nil {
 		log.WithField("error", err.Error()).Error("cannot get count of downloaded content")
 		downloadedContentCount = s.MinimalTouchTimes
@@ -444,17 +474,17 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 	v := url.Values{}
 	v.Set("msisdn", r.Msisdn)
 	if r.Paid {
-		v.Set("status", 1)
+		v.Set("status", "1")
 	} else {
-		v.Set("status", 0)
+		v.Set("status", "0")
 	}
-	eventNum := 0
+	eventNum := "0"
 	if event == "mo" {
-		eventNum = 1
+		eventNum = "1"
 	} else if event == "renewal" {
-		eventNum = 2
+		eventNum = "2"
 	} else if event == "unsub" {
-		eventNum = 3
+		eventNum = "3"
 	} else {
 		log.WithFields(log.Fields{
 			"tid":    r.Tid,
@@ -475,13 +505,13 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 			"error":  err.Error(),
 		}).Warn("error while channle notify")
 	}
-	if resp.Status != 200 {
+	if resp.StatusCode != 200 {
 		log.WithFields(log.Fields{
 			"tid":    r.Tid,
 			"msisdn": r.Msisdn,
 			"event":  event,
 			"url":    channelUrl,
-			"error":  resp.StatusCode,
+			"error":  resp.Status,
 		}).Warn("channel notify status code is suspisious")
 	} else {
 		log.WithFields(log.Fields{
@@ -502,7 +532,8 @@ func (mb *mobilink) sendContent() error {
 	}
 	for _, subscr := range subscriptions {
 		logCtx := log.WithFields(log.Fields{
-			"tid": subscr.Tid,
+			"tid":    subscr.Tid,
+			"action": "send content",
 		})
 
 		s, err := inmem_client.GetServiceById(subscr.ServiceId)
@@ -520,11 +551,10 @@ func (mb *mobilink) sendContent() error {
 		contentHash, err := getContentUniqueHash(subscr)
 		if err != nil {
 			Errors.Inc()
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			err = fmt.Errorf("getContentUniqueHash: %s", err.Error())
 			logCtx.WithFields(log.Fields{
-				"error":      err.Error(),
-				"service_id": subscr.ServiceId,
-			}).Error("cannot get service by id")
+				"error": err.Error(),
+			}).Error("getContentUniqueHash")
 			return err
 		}
 		url := mb.conf.Content.Url + contentHash
@@ -534,9 +564,8 @@ func (mb *mobilink) sendContent() error {
 
 			err = fmt.Errorf("publish: %s", err.Error())
 			logCtx.WithFields(log.Fields{
-				"error":      err.Error(),
-				"service_id": subscr.ServiceId,
-			}).Error("cannot get service by id")
+				"error": err.Error(),
+			}).Error("cannot enqueue")
 			return err
 		}
 	}
@@ -550,7 +579,6 @@ func (mb *mobilink) initActiveSubscriptionsCache() {
 	if err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot load previous subscriptions")
 	}
-	log.WithField("count", len(prev)).Debug("loaded previous subscriptions")
 	mb.prevCache = cache.New(time.Duration(4)*time.Hour, time.Minute)
 	for _, v := range prev {
 		storeDuration := time.Duration(24*v.RetryDays)*time.Hour - time.Now().UTC().Sub(v.CreatedAt) + time.Hour

@@ -106,6 +106,7 @@ func publish(queueName, eventName string, r rec.Record, priorityOptional ...uint
 		return
 	}
 	svc.notifier.Publish(amqp.AMQPMessage{
+		EventName: eventName,
 		QueueName: queueName,
 		Priority:  priority,
 		Body:      body,
