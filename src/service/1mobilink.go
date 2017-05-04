@@ -104,6 +104,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	}
 
 	if mb.conf.Periodic.Enabled {
+		mb.periodicSync = &sync.WaitGroup{}
 		go func() {
 			for range time.Tick(time.Duration(mb.conf.Periodic.Period) * time.Second) {
 				mb.processPeriodic()
