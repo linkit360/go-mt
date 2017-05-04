@@ -348,6 +348,7 @@ func (mb *mobilink) setServiceFields(r *rec.Record, s inmem_service.Service) {
 	r.DelayHours = s.DelayHours
 	r.PaidHours = s.PaidHours
 	r.RetryDays = s.RetryDays
+	r.PeriodicDays = s.PeriodicDays
 	r.Price = 100 * int(s.Price)
 	r.SMSText = s.SMSOnSubscribe // for mo func
 }
