@@ -30,9 +30,9 @@ type qrtech struct {
 type QRTechConfig struct {
 	Enabled      bool                            `yaml:"enabled" default:"false"`
 	OperatorName string                          `yaml:"operator_name" default:"qrtech"`
-	AisMNC       string                          `yaml:"ais_mnc" `
-	DtacMNC      string                          `yaml:"dtac_mnc" `
-	TruehMNC     string                          `yaml:"trueh_mnc" `
+	AisMNC       string                          `yaml:"ais_mnc"`
+	DtacMNC      string                          `yaml:"dtac_mnc"`
+	TruehMNC     string                          `yaml:"trueh_mnc"`
 	MCC          string                          `yaml:"mcc"`
 	CountryCode  int64                           `yaml:"country_code" default:"66"`
 	Location     string                          `yaml:"location"`
@@ -210,51 +210,55 @@ type QRTechEventNotifyDN struct {
 	EventData rec.Record `json:"event_data,omitempty"`
 }
 
-func (qrTech *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
+func (qr *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
 		var subscriptionId int64
 		var e QRTechEventNotifyDN
+		var as rec.ActiveSubscription
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
-			qrTech.m.DNDropped.Inc()
+			qr.m.DNDropped.Inc()
 
 			log.WithFields(log.Fields{
 				"error": err.Error(),
 				"msg":   "dropped",
 				"dn":    string(msg.Body),
-			}).Error("consume from " + qrTech.conf.DN.Name)
+			}).Error("consume from " + qr.conf.DN.Name)
 			goto ack
 		}
 		r = e.EventData
 
-		subscriptionId, err = qrTech.getActiveSubscriptionCache(r)
+		as, err = qr.getActiveSubscriptionCache(r)
 		if err != nil {
 			msg.Nack(false, true)
 			log.WithFields(log.Fields{
 				"msg": "requeue",
-			}).Error("consume from " + qrTech.conf.DN.Name)
+			}).Error("consume from " + qr.conf.DN.Name)
 			continue
 		}
 		if subscriptionId == 0 {
-			qrTech.m.DNDropped.Inc()
+			qr.m.DNDropped.Inc()
 
 			log.WithFields(log.Fields{
 				"error": "not found",
 				"msg":   "dropped",
 				"dn":    string(msg.Body),
-			}).Error("consume from " + qrTech.conf.DN.Name)
+			}).Error("consume from " + qr.conf.DN.Name)
 			goto ack
 		}
-		r.SubscriptionId = subscriptionId
+		r.SubscriptionId = as.Id
+		r.AttemptsCount = as.AttemptsCount
 
 		if err := processResponse(&r, false); err != nil {
-			qrTech.m.DNErrors.Inc()
+			qr.m.DNErrors.Inc()
 			msg.Nack(false, true)
 			continue
 		} else {
-			qrTech.m.DNSuccess.Inc()
+			qr.m.DNSuccess.Inc()
 		}
+		r.AttemptsCount = r.AttemptsCount + 1
+		qr.setActiveSubscriptionCache(r)
 
 	ack:
 		if err := msg.Ack(false); err != nil {
@@ -279,34 +283,45 @@ func (qr *qrtech) initActiveSubscriptionsCache() {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}
 	qr.activeSubscriptions = &activeSubscriptions{
-		byKey: make(map[string]int64),
+		byKey: make(map[string]rec.ActiveSubscription),
 	}
 	for _, v := range prev {
 		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
-		qr.activeSubscriptions.byKey[key] = v.Id
+		qr.activeSubscriptions.byKey[key] = v
 	}
 }
-func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (int64, error) {
+
+func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscription, err error) {
 	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
-	sid, found := qr.activeSubscriptions.byKey[key]
+	as, found := qr.activeSubscriptions.byKey[key]
 	if !found {
-		oldRec, err := rec.GetSubscriptionByMsisdn(r.Msisdn)
+		var oldRec rec.Record
+		oldRec, err = rec.GetSubscriptionByMsisdn(r.Msisdn)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return 0, nil
+				return
 			}
-			return 0, err
+			return
 		}
-		return oldRec.SubscriptionId, nil
+		as = rec.ActiveSubscription{
+			Id:            oldRec.SubscriptionId,
+			AttemptsCount: oldRec.AttemptsCount,
+		}
+		return
 	}
-	return sid, nil
+	return
 }
+
 func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
 	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
 	if _, found := qr.activeSubscriptions.byKey[key]; found {
 		return
 	}
-	qr.activeSubscriptions.byKey[key] = r.SubscriptionId
+
+	qr.activeSubscriptions.byKey[key] = rec.ActiveSubscription{
+		Id:            r.SubscriptionId,
+		AttemptsCount: r.AttemptsCount,
+	}
 	log.WithFields(log.Fields{
 		"tid": r.Tid,
 		"key": key,
