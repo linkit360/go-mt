@@ -368,7 +368,7 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("failed")
 			goto ack
 		}
-		if err := mb.handleResponse(e.EventData); err != nil {
+		if err := mb.handleResponse(e.EventName, e.EventData); err != nil {
 			Errors.Inc()
 			mb.m.ResponseErrors.Inc()
 			msg.Nack(false, true)
@@ -390,24 +390,36 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (mb *mobilink) handleResponse(r rec.Record) error {
+func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
+	var err error
+	var downloadedContentCount int
+	var count int
+	var s inmem_service.Service
+	var gracePeriod time.Duration
+	var allowedSubscriptionPeriod time.Duration
+	var timePassedSinsceSubscribe time.Duration
+	flagUnsubscribe := false
+
+	// do not process as usual response, need only unsub
+	if r.Channel != "" && eventName == "unsub" {
+		flagUnsubscribe = true
+		goto unsubscribe
+	}
+
 	if err := processResponse(&r, false); err != nil {
 		return err
 	}
 
-	flagUnsubscribe := false
-
-	s, err := inmem_client.GetServiceById(r.ServiceId)
+	s, err = inmem_client.GetServiceById(r.ServiceId)
 	if err != nil {
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		return err
 	}
-	gracePeriod := time.Duration(24*(s.RetryDays-s.GraceDays)) * time.Hour
-	allowedSubscriptionPeriod := time.Duration(24*s.RetryDays) * time.Hour
-	timePassedSinsceSubscribe := time.Now().UTC().Sub(mb.getSubscriptionStartTime(r))
-	var downloadedContentCount int
+	gracePeriod = time.Duration(24*(s.RetryDays-s.GraceDays)) * time.Hour
+	allowedSubscriptionPeriod = time.Duration(24*s.RetryDays) * time.Hour
+	timePassedSinsceSubscribe = time.Now().UTC().Sub(mb.getSubscriptionStartTime(r))
 
-	count, err := rec.GetCountOfFailedChargesFor(r.Msisdn, r.ServiceId, s.InactiveDays)
+	count, err = rec.GetCountOfFailedChargesFor(r.Msisdn, r.ServiceId, s.InactiveDays)
 	if err != nil {
 		return err
 	}
@@ -471,10 +483,11 @@ unsubscribe:
 }
 
 func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
-	if !mb.conf.Channel.Enabled {
+	if r.Channel == "" {
 		return
 	}
-	if r.Channel == "" {
+	mb.m.ChannelTotal.Inc()
+	if !mb.conf.Channel.Enabled {
 		return
 	}
 	if r.AttemptsCount == 0 {
@@ -504,6 +517,7 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 			"msisdn": r.Msisdn,
 			"event":  event,
 		}).Error("wrong event type")
+		mb.m.ChannelErrors.Inc()
 		return
 	}
 	v.Set("event", eventNum)
@@ -518,22 +532,29 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 			"url":    channelUrl,
 			"error":  err.Error(),
 		}).Warn("error while channel notify")
+		mb.m.ChannelErrors.Inc()
+		return
 	}
-	if resp.StatusCode != 200 {
-		log.WithFields(log.Fields{
-			"tid":    r.Tid,
-			"msisdn": r.Msisdn,
-			"event":  event,
-			"url":    channelUrl,
-			"error":  resp.Status,
-		}).Warn("channel notify status code is suspisious")
-	} else {
+	if resp.StatusCode == 200 ||
+		resp.StatusCode == 201 ||
+		resp.StatusCode == 202 {
+
+		mb.m.ChannelSuccess.Inc()
 		log.WithFields(log.Fields{
 			"tid":  r.Tid,
 			"url":  channelUrl,
 			"code": resp.StatusCode,
 		}).Info("channel notify")
+		return
 	}
+	log.WithFields(log.Fields{
+		"tid":    r.Tid,
+		"msisdn": r.Msisdn,
+		"event":  event,
+		"url":    channelUrl,
+		"error":  resp.Status,
+	}).Warn("channel notify status code is suspisious")
+	mb.m.ChannelErrors.Inc()
 }
 
 func (mb *mobilink) sendContent() error {
@@ -541,10 +562,14 @@ func (mb *mobilink) sendContent() error {
 		return nil
 	}
 
+	begin := time.Now().UTC()
 	subscriptions, err := rec.GetLiveTodayPeriodicsForContent(mb.conf.Content.FetchLimit)
 	if err != nil {
 		return err
 	}
+	mb.m.GetContentDuration.Observe(time.Since(begin).Seconds())
+
+	begin = time.Now().UTC()
 	for _, subscr := range subscriptions {
 		logCtx := log.WithFields(log.Fields{
 			"tid":    subscr.Tid,
@@ -590,6 +615,7 @@ func (mb *mobilink) sendContent() error {
 			return err
 		}
 	}
+	mb.m.ProcessContentDuration.Observe(time.Since(begin).Seconds())
 	return nil
 }
 
@@ -666,13 +692,18 @@ type MobilinkMetrics struct {
 	AddToDBErrors            m.Gauge
 	AddToDbSuccess           m.Gauge
 	NotifyErrors             m.Gauge
+	SMSSent                  m.Gauge
 	ResponseDropped          m.Gauge
 	ResponseErrors           m.Gauge
 	ResponseSuccess          m.Gauge
-	SMSResponseSuccess       m.Gauge
+	ChannelTotal             m.Gauge
+	ChannelSuccess           m.Gauge
+	ChannelErrors            m.Gauge
 	SinceRetryStartProcessed prometheus.Gauge
 	GetPeriodicsDuration     prometheus.Summary
 	ProcessPeriodicsDuration prometheus.Summary
+	GetContentDuration       prometheus.Summary
+	ProcessContentDuration   prometheus.Summary
 }
 
 func (mb *mobilink) initMetrics() {
@@ -682,13 +713,18 @@ func (mb *mobilink) initMetrics() {
 		AddToDBErrors:            m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
 		AddToDbSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
 		NotifyErrors:             m.NewGauge(appName, mb.conf.OperatorName, "notify_errors", "notify errors"),
+		SMSSent:                  m.NewGauge(appName, mb.conf.OperatorName, "sms_sent", "sms sent"),
 		ResponseDropped:          m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
 		ResponseErrors:           m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
 		ResponseSuccess:          m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
-		SMSResponseSuccess:       m.NewGauge(appName, mb.conf.OperatorName, "sms_response_success", "success"),
+		ChannelTotal:             m.NewGauge(appName, mb.conf.OperatorName, "channel_total", "channel total"),
+		ChannelSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "channel_success", "channel success"),
+		ChannelErrors:            m.NewGauge(appName, mb.conf.OperatorName, "channel_errors", "channel errors"),
 		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
 		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
 		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
+		GetContentDuration:       m.NewSummary("get_content_duration_seconds", "get content duration seconds"),
+		ProcessContentDuration:   m.NewSummary("process_content_duration_seconds", "process content duration seconds"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -697,10 +733,13 @@ func (mb *mobilink) initMetrics() {
 			mbm.AddToDBErrors.Update()
 			mbm.AddToDbSuccess.Update()
 			mbm.NotifyErrors.Update()
+			mbm.SMSSent.Update()
 			mbm.ResponseDropped.Update()
 			mbm.ResponseErrors.Update()
 			mbm.ResponseSuccess.Update()
-			mbm.SMSResponseSuccess.Update()
+			mbm.ChannelTotal.Update()
+			mbm.ChannelSuccess.Update()
+			mbm.ChannelErrors.Update()
 		}
 	}()
 
