@@ -15,6 +15,7 @@ import (
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	inmem_service "github.com/linkit360/go-inmem/service"
 	yondu_service "github.com/linkit360/go-operator/ph/yondu/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"
@@ -43,7 +44,6 @@ type YonduConfig struct {
 	Location           string                          `yaml:"location"`
 	ChargeOnRejected   bool                            `yaml:"charge_on_rejected" default:"false"`
 	Content            ContentConfig                   `yaml:"content"`
-	Texts              TextsConfig                     `yaml:"texts"`
 	Periodic           PeriodicConfig                  `yaml:"periodic"`
 	MT                 string                          `yaml:"mt"`
 	MO                 queue_config.ConsumeQueueConfig `yaml:"mo"`
@@ -57,14 +57,6 @@ type ContentConfig struct {
 	Url                string `yaml:"url"`
 	FetchLimit         int    `yaml:"fetch_limit"`
 	FetchPeriodSeconds int    `yaml:"fetch_period_seconds"`
-}
-
-type TextsConfig struct {
-	Rejected       string `yaml:"rejected"`
-	RejectedCharge string `yaml:"rejected_charge"`
-	BlackListed    string `yaml:"blacklisted"`
-	PostPaid       string `yaml:"postpaid"`
-	Unsubscribe    string `yaml:"unsubscribe"`
 }
 
 type PeriodicConfig struct {
@@ -297,6 +289,7 @@ type YonduEventNotifyMO struct {
 func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
+		var s inmem_service.Service
 		var err error
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
@@ -314,7 +307,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			goto ack
 		}
 
-		r, err = y.getRecordByMO(e.EventData)
+		r, s, err = y.getRecordByMO(e.EventData)
 		if err != nil {
 			msg.Nack(false, true)
 			continue
@@ -353,7 +346,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 					msg.Nack(false, true)
 					continue
 				}
-				r.SMSText = y.conf.Texts.Unsubscribe
+				r.SMSText = s.SMSOnUnsubscribe
 				if err := y.publishMT(r); err != nil {
 					logCtx.WithField("error", err.Error()).Error("publishYonduMT")
 				}
@@ -397,15 +390,15 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 				}
 				goto ack
 			}
-			r.SMSText = y.conf.Texts.Rejected
+			r.SMSText = s.SMSOnRejected
 		} else if r.Result == "blacklisted" {
-			r.SMSText = y.conf.Texts.BlackListed
+			r.SMSText = s.SMSOnBlackListed
 			if err := y.publishMT(r); err != nil {
 				Errors.Inc()
 				logCtx.WithField("error", err.Error()).Error("inform blacklisted failed")
 			}
 		} else if r.Result == "postpaid" {
-			r.SMSText = y.conf.Texts.PostPaid
+			r.SMSText = s.SMSOnPostPaid
 			if err := y.publishMT(r); err != nil {
 				Errors.Inc()
 				logCtx.WithField("error", err.Error()).Error("inform postpaid failed")
@@ -429,11 +422,10 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error) {
-	r := rec.Record{}
-
+func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc inmem_service.Service, err error) {
 	keyWords := strings.Split(req.Params.Message, " ")
-	campaign, err := inmem_client.GetCampaignByKeyWord(keyWords[0])
+	var campaign inmem_service.Campaign
+	campaign, err = inmem_client.GetCampaignByKeyWord(keyWords[0])
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
@@ -442,9 +434,9 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 			"keyword": req.Params.Message,
 			"error":   err.Error(),
 		}).Error("cannot get campaign by keyword")
-		return r, nil
+		return
 	}
-	svc, err := inmem_client.GetServiceById(campaign.ServiceId)
+	svc, err = inmem_client.GetServiceById(campaign.ServiceId)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
@@ -455,7 +447,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 			"campaignId": campaign.Id,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
-		return r, err
+		return
 	}
 
 	r = rec.Record{
@@ -481,7 +473,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (rec.Record, error
 		SMSText:                  "",
 	}
 
-	return r, nil
+	return
 }
 
 // ============================================================
@@ -806,7 +798,7 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 // ============================================================
 // inmemory cache for incoming mo subscriptions
 type activeSubscriptions struct {
-	byKey map[string]int64
+	byKey map[string]rec.ActiveSubscription
 }
 
 func (y *yondu) initActiveSubscriptionsCache() {
@@ -816,11 +808,11 @@ func (y *yondu) initActiveSubscriptionsCache() {
 		log.WithField("error", err.Error()).Fatal("cannot load active subscriptions")
 	}
 	y.activeSubscriptions = &activeSubscriptions{
-		byKey: make(map[string]int64),
+		byKey: make(map[string]rec.ActiveSubscription),
 	}
 	for _, v := range prev {
 		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
-		y.activeSubscriptions.byKey[key] = v.Id
+		y.activeSubscriptions.byKey[key] = v
 	}
 }
 func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
@@ -838,7 +830,10 @@ func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
 	if _, found := y.activeSubscriptions.byKey[key]; found {
 		return
 	}
-	y.activeSubscriptions.byKey[key] = r.SubscriptionId
+	y.activeSubscriptions.byKey[key] = rec.ActiveSubscription{
+		Id:            r.SubscriptionId,
+		AttemptsCount: r.AttemptsCount,
+	}
 	log.WithFields(log.Fields{
 		"tid": r.Tid,
 		"key": key,

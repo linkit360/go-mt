@@ -71,12 +71,6 @@ service:
     content:
       send_enabled: true
       url: http://dev.pk.linkit360.ru/u/
-    texts:
-      rejected: "You already subscribed on this service."
-      rejected_charge: "You already subscribed on this service."
-      blacklisted: "Sorry, service not available."
-      postpaid: "Sorry, service not available."
-      unsubscribe: "You have been unsubscribed."
     periodic:
       enabled: true
       fetch_limit: 10
