@@ -3,7 +3,10 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -17,9 +20,6 @@ import (
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
 	rec "github.com/linkit360/go-utils/rec"
-	"net/http"
-	"net/url"
-	"sync"
 )
 
 // Mobilink telco handlers.
@@ -309,6 +309,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
+
 		if r.SubscriptionStatus == "" {
 			if err := publish(mb.conf.Requests, "charge", r, 1); err != nil {
 				Errors.Inc()
@@ -322,12 +323,10 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 			}
 			if r.SMSText == "" {
 				Errors.Inc()
-				logCtx.WithFields(log.Fields{}).Error("empty text for sms subscribe")
+				logCtx.WithFields(log.Fields{}).Info("empty text for sms subscribe")
 			} else {
 				publish(mb.conf.SMSRequests, "send_sms", r)
 			}
-
-			mb.sendChannelNotify("mo", r)
 		}
 
 	ack:
@@ -450,10 +449,15 @@ unsubscribe:
 		if err := writeSubscriptionStatus(r); err != nil {
 			return err
 		}
+		mb.sendChannelNotify("unsub", r)
+
+		if s.SMSOnUnsubscribe == "" {
+			log.WithField("sms_text", "empty").Info("skip user notify")
+			return nil
+		}
 		r.SMSText = s.SMSOnUnsubscribe
 		publish(mb.conf.SMSRequests, "send_sms", r)
 
-		mb.sendChannelNotify("unsub", r)
 	}
 
 	// send everything, pixels module will decide to send pixel, or not to send
@@ -473,6 +477,13 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 	if r.Channel == "" {
 		return
 	}
+	if r.AttemptsCount == 0 {
+		event = "mo"
+	}
+	if (event == "mo" || event == "renewal") && r.Paid == false {
+		return
+	}
+
 	v := url.Values{}
 	v.Set("msisdn", r.Msisdn)
 	if r.Paid {
@@ -493,6 +504,7 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 			"msisdn": r.Msisdn,
 			"event":  event,
 		}).Error("wrong event type")
+		return
 	}
 	v.Set("event", eventNum)
 	v.Set("timestamp", time.Now().UTC().Format("20060102 15:04:05"))
@@ -505,7 +517,7 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 			"event":  event,
 			"url":    channelUrl,
 			"error":  err.Error(),
-		}).Warn("error while channle notify")
+		}).Warn("error while channel notify")
 	}
 	if resp.StatusCode != 200 {
 		log.WithFields(log.Fields{
@@ -528,6 +540,7 @@ func (mb *mobilink) sendContent() error {
 	if !mb.conf.Content.Enabled {
 		return nil
 	}
+
 	subscriptions, err := rec.GetLiveTodayPeriodicsForContent(mb.conf.Content.FetchLimit)
 	if err != nil {
 		return err
@@ -548,6 +561,13 @@ func (mb *mobilink) sendContent() error {
 			}).Error("cannot get service by id")
 			return err
 		}
+		if s.SMSOnContent == "" {
+			logCtx.WithFields(log.Fields{
+				"service_id": subscr.ServiceId,
+			}).Debug("sms on content is empty, skip content sending")
+			return nil
+		}
+
 		mb.setServiceFields(&subscr, s)
 
 		contentHash, err := getContentUniqueHash(subscr)
@@ -559,9 +579,8 @@ func (mb *mobilink) sendContent() error {
 			}).Error("getContentUniqueHash")
 			return err
 		}
-		url := mb.conf.Content.Url + contentHash
-		subscr.SMSText = fmt.Sprintf(s.SMSOnContent, url)
 
+		subscr.SMSText = fmt.Sprintf(s.SMSOnContent, mb.conf.Content.Url+contentHash)
 		if err := publish(mb.conf.SMSRequests, "send_sms", subscr); err != nil {
 
 			err = fmt.Errorf("publish: %s", err.Error())
