@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -28,7 +27,6 @@ import (
 type mobilink struct {
 	conf              MobilinkConfig
 	m                 *MobilinkMetrics
-	periodicSync      *sync.WaitGroup
 	prevCache         *cache.Cache
 	NewCh             <-chan amqp_driver.Delivery
 	NewConsumer       *amqp.Consumer
@@ -104,7 +102,6 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	}
 
 	if mb.conf.Periodic.Enabled {
-		mb.periodicSync = &sync.WaitGroup{}
 		go func() {
 			for range time.Tick(time.Duration(mb.conf.Periodic.Period) * time.Second) {
 				mb.processPeriodic()
@@ -132,7 +129,6 @@ func (mb *mobilink) processPeriodic() {
 
 	begin = time.Now()
 	for _, subscr := range subscriptions {
-		mb.periodicSync.Add(1)
 
 		logCtx := log.WithFields(log.Fields{
 			"tid":    subscr.Tid,
@@ -165,9 +161,8 @@ func (mb *mobilink) processPeriodic() {
 			return
 		}
 		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
-
 	}
-	mb.periodicSync.Wait()
+
 	mb.m.ProcessPeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
 
