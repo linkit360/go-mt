@@ -396,21 +396,45 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var timePassedSinsceSubscribe time.Duration
 	flagUnsubscribe := false
 
+	s, err = inmem_client.GetServiceById(r.ServiceId)
+	if err != nil {
+		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		return err
+	}
+
 	// do not process as usual response, need only unsub
-	if r.Channel != "" && eventName == "unsub" {
-		flagUnsubscribe = true
-		goto unsubscribe
+	if eventName == "unsub" || eventName == "purge" {
+		mb.removeActiveSubscription(r)
+
+		log.WithField("reason", "api unsubscribe").Info("unsubscribe subscription")
+
+		if eventName == "unsub" {
+			if err := unsubscribe(r); err != nil {
+				return err
+			}
+		}
+		if eventName == "purge" {
+			if err := unsubscribeAll(r); err != nil {
+				return err
+			}
+		}
+
+		mb.sendChannelNotify("unsub", r)
+
+		if s.SMSOnUnsubscribe == "" {
+			log.WithField("sms_text", "empty").Info("skip user notify")
+			return nil
+		}
+		r.SMSText = s.SMSOnUnsubscribe
+		publish(mb.conf.SMSRequests, "send_sms", r)
+
+		return nil
 	}
 
 	if err := processResponse(&r, false); err != nil {
 		return err
 	}
 
-	s, err = inmem_client.GetServiceById(r.ServiceId)
-	if err != nil {
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
-		return err
-	}
 	gracePeriod = time.Duration(24*(s.RetryDays-s.GraceDays)) * time.Hour
 	allowedSubscriptionPeriod = time.Duration(24*s.RetryDays) * time.Hour
 	timePassedSinsceSubscribe = time.Now().UTC().Sub(mb.getSubscriptionStartTime(r))
@@ -453,6 +477,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 
 unsubscribe:
 	if flagUnsubscribe {
+		mb.removeActiveSubscription(r)
 		r.SubscriptionStatus = "inactive"
 		if err := writeSubscriptionStatus(r); err != nil {
 			return err
@@ -630,6 +655,11 @@ func (mb *mobilink) initActiveSubscriptionsCache() {
 			mb.prevCache.Set(key, v.CreatedAt, storeDuration)
 		}
 	}
+}
+
+func (mb *mobilink) removeActiveSubscription(r rec.Record) {
+	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	mb.prevCache.Delete(key)
 }
 
 func (mb *mobilink) getSubscriptionStartTime(r rec.Record) time.Time {
