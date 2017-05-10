@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	acceptor "github.com/linkit360/go-acceptor-structs"
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	inmem_service "github.com/linkit360/go-inmem/service"
@@ -289,7 +290,7 @@ type YonduEventNotifyMO struct {
 func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
-		var s inmem_service.Service
+		var s acceptor.Service
 		var err error
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
@@ -422,7 +423,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc inmem_service.Service, err error) {
+func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc acceptor.Service, err error) {
 	keyWords := strings.Split(req.Params.Message, " ")
 	var campaign inmem_service.Campaign
 	campaign, err = inmem_client.GetCampaignByKeyWord(keyWords[0])

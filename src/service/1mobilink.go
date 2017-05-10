@@ -13,8 +13,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	acceptor "github.com/linkit360/go-acceptor-structs"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
-	inmem_service "github.com/linkit360/go-inmem/service"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -117,6 +117,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 // ============================================================
 // periodics: get subscriptions in database and send charge request
 func (mb *mobilink) processPeriodic() {
+	mb.m.SinPeriodicStartProcess.Set(0)
 	if !mb.conf.Periodic.Enabled {
 		return
 	}
@@ -179,7 +180,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 		var err error
-		var s inmem_service.Service
+		var s acceptor.Service
 
 		logCtx := log.WithFields(log.Fields{
 			"action": "send content",
@@ -337,7 +338,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (mb *mobilink) setServiceFields(r *rec.Record, s inmem_service.Service) {
+func (mb *mobilink) setServiceFields(r *rec.Record, s acceptor.Service) {
 	r.Periodic = true
 	r.DelayHours = s.DelayHours
 	r.PaidHours = s.PaidHours
@@ -389,7 +390,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var err error
 	var downloadedContentCount int
 	var count int
-	var s inmem_service.Service
+	var s acceptor.Service
 	var gracePeriod time.Duration
 	var allowedSubscriptionPeriod time.Duration
 	var timePassedSinsceSubscribe time.Duration
@@ -694,7 +695,7 @@ type MobilinkMetrics struct {
 	ChannelTotal             m.Gauge
 	ChannelSuccess           m.Gauge
 	ChannelErrors            m.Gauge
-	SinceRetryStartProcessed prometheus.Gauge
+	SinPeriodicStartProcess  prometheus.Gauge
 	GetPeriodicsDuration     prometheus.Summary
 	ProcessPeriodicsDuration prometheus.Summary
 	GetContentDuration       prometheus.Summary
@@ -715,7 +716,7 @@ func (mb *mobilink) initMetrics() {
 		ChannelTotal:             m.NewGauge(appName, mb.conf.OperatorName, "channel_total", "channel total"),
 		ChannelSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "channel_success", "channel success"),
 		ChannelErrors:            m.NewGauge(appName, mb.conf.OperatorName, "channel_errors", "channel errors"),
-		SinceRetryStartProcessed: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_retries_fetch_seconds", "seconds since last retries processing"),
+		SinPeriodicStartProcess:  m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_periodic_fetch_seconds", "seconds since last periodic processing"),
 		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
 		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
 		GetContentDuration:       m.NewSummary("get_content_duration_seconds", "get content duration seconds"),
@@ -740,7 +741,7 @@ func (mb *mobilink) initMetrics() {
 
 	go func() {
 		for range time.Tick(time.Second) {
-			mbm.SinceRetryStartProcessed.Inc()
+			mbm.SinPeriodicStartProcess.Inc()
 		}
 	}()
 	mb.m = mbm
