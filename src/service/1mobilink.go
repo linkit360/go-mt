@@ -403,12 +403,12 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	}
 
 	// do not process as usual response, need only unsub
-	if eventName == "unsub" || eventName == "purge" {
+	if eventName == "unreg" || eventName == "purge" {
 		mb.removeActiveSubscription(r)
 
 		log.WithField("reason", "api unsubscribe").Info("unsubscribe subscription")
 
-		if eventName == "unsub" {
+		if eventName == "unreg" {
 			if err := unsubscribe(r); err != nil {
 				return err
 			}
@@ -419,7 +419,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 			}
 		}
 
-		mb.sendChannelNotify("unsub", r)
+		mb.sendChannelNotify("unreg", r)
 
 		if s.SMSOnUnsubscribe == "" {
 			log.WithField("sms_text", "empty").Info("skip user notify")
@@ -482,7 +482,7 @@ unsubscribe:
 		if err := writeSubscriptionStatus(r); err != nil {
 			return err
 		}
-		mb.sendChannelNotify("unsub", r)
+		mb.sendChannelNotify("unreg", r)
 
 		if s.SMSOnUnsubscribe == "" {
 			log.WithField("sms_text", "empty").Info("skip user notify")
@@ -530,7 +530,7 @@ func (mb *mobilink) sendChannelNotify(event string, r rec.Record) {
 		eventNum = "1"
 	} else if event == "renewal" {
 		eventNum = "2"
-	} else if event == "unsub" {
+	} else if event == "unreg" {
 		eventNum = "3"
 	} else {
 		log.WithFields(log.Fields{

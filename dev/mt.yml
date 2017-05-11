@@ -34,7 +34,7 @@ service:
 
     periodic:
       enabled: true
-      period: 1
+      period: 3600
       fetch_limit: 10
 
     content:
