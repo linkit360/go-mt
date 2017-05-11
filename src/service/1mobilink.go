@@ -156,6 +156,11 @@ func (mb *mobilink) processPeriodic() {
 				"error": err.Error(),
 			}).Error("cannot send charge request")
 			continue
+		} else {
+			logCtx.WithFields(log.Fields{
+				"price":           subscr.Price,
+				"subscription)id": subscr.SubscriptionId,
+			}).Info("sent charge request")
 		}
 		begin := time.Now()
 		if err = rec.SetSubscriptionStatus("pending", subscr.SubscriptionId); err != nil {
@@ -370,7 +375,6 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		mb.sendChannelNotify("renewal", e.EventData)
 
 		mb.m.ResponseSuccess.Inc()
 	ack:
@@ -394,6 +398,12 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var gracePeriod time.Duration
 	var allowedSubscriptionPeriod time.Duration
 	var timePassedSinsceSubscribe time.Duration
+
+	logCtx := log.WithFields(log.Fields{
+		"action": "handle response",
+		"tid":    r.Tid,
+	})
+
 	flagUnsubscribe := false
 
 	s, err = inmem_client.GetServiceById(r.ServiceId)
@@ -406,7 +416,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	if eventName == "unreg" || eventName == "purge" {
 		mb.removeActiveSubscription(r)
 
-		log.WithField("reason", "api unsubscribe").Info("unsubscribe subscription")
+		logCtx.WithField("reason", "api unsubscribe").Info("unsubscribe subscription")
 
 		if eventName == "unreg" {
 			if err := unsubscribe(r); err != nil {
@@ -422,7 +432,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 		mb.sendChannelNotify("unreg", r)
 
 		if s.SMSOnUnsubscribe == "" {
-			log.WithField("sms_text", "empty").Info("skip user notify")
+			logCtx.WithField("sms_text", "empty").Info("skip user notify")
 			return nil
 		}
 		r.SMSText = s.SMSOnUnsubscribe
@@ -434,12 +444,20 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	if err := processResponse(&r, false); err != nil {
 		return err
 	}
+	if r.Paid == true {
+		mb.sendChannelNotify("renewal", r)
+	}
 
 	gracePeriod = time.Duration(24*(s.RetryDays-s.GraceDays)) * time.Hour
 	allowedSubscriptionPeriod = time.Duration(24*s.RetryDays) * time.Hour
 	timePassedSinsceSubscribe = time.Now().UTC().Sub(mb.getSubscriptionStartTime(r))
 
-	count, err = rec.GetCountOfFailedChargesFor(r.Msisdn, r.ServiceId, s.InactiveDays)
+	if r.SubscriptionId == 0 {
+		mb.m.ResponseErrors.Inc()
+		logCtx.WithFields(log.Fields{}).Error("subscriptionId is empty")
+		return nil
+	}
+	count, err = rec.GetCountOfFailedChargesFor(r.Msisdn, r.Tid, r.SubscriptionId, s.InactiveDays)
 	if err != nil {
 		return err
 	}
@@ -447,30 +465,34 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 		count = count + 1
 	}
 	if count > s.InactiveDays {
-		log.WithField("reason", "inactive days").Info("deactivate subscription")
+		logCtx.WithFields(log.Fields{
+			"reason":               "inactive days",
+			"failed_charges_count": count,
+			"inactive_days":        s.InactiveDays,
+		}).Info("deactivate subscription")
 		flagUnsubscribe = true
 		goto unsubscribe
 	}
 
 	if r.Paid == false && timePassedSinsceSubscribe > gracePeriod {
-		log.WithField("reason", "failed charge in grace period").Info("deactivate subscription")
+		logCtx.WithField("reason", "failed charge in grace period").Info("deactivate subscription")
 		flagUnsubscribe = true
 		goto unsubscribe
 	}
 
 	if timePassedSinsceSubscribe > allowedSubscriptionPeriod {
-		log.WithField("reason", "passed the subscription period").Info("deactivate subscription")
+		logCtx.WithField("reason", "passed the subscription period").Info("deactivate subscription")
 		flagUnsubscribe = true
 		goto unsubscribe
 	}
 
 	downloadedContentCount, err = rec.GetCountOfDownloadedContent(r.SubscriptionId)
 	if err != nil {
-		log.WithField("error", err.Error()).Error("cannot get count of downloaded content")
+		logCtx.WithField("error", err.Error()).Error("cannot get count of downloaded content")
 		downloadedContentCount = s.MinimalTouchTimes
 	}
 	if downloadedContentCount < s.MinimalTouchTimes && timePassedSinsceSubscribe > gracePeriod {
-		log.WithField("reason", "too view content downloaded").Info("deactivate subscription")
+		logCtx.WithField("reason", "too view content downloaded").Info("deactivate subscription")
 		flagUnsubscribe = true
 		goto unsubscribe
 	}
