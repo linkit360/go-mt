@@ -7,8 +7,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
-	reporter_client "github.com/linkit360/go-reporter/rpcclient"
-	reporter_collector "github.com/linkit360/go-reporter/server/src/collector"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -122,13 +120,6 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		} else {
-			// no response processing, so it's here
-			reporter_client.IncPaid(reporter_collector.Collect{
-				CampaignId:        r.CampaignId,
-				OperatorCode:      r.OperatorCode,
-				Msisdn:            r.Msisdn,
-				TransactionResult: "paid",
-			})
 			ch.m.AddToDbSuccess.Inc()
 		}
 

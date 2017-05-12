@@ -11,8 +11,6 @@ import (
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	beeline_service "github.com/linkit360/go-operator/ru/beeline/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
-	reporter_client "github.com/linkit360/go-reporter/rpcclient"
-	reporter_collector "github.com/linkit360/go-reporter/server/src/collector"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -173,13 +171,6 @@ func (be *beeline) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		} else {
-			// no response processing, so it's here
-			reporter_client.IncPaid(reporter_collector.Collect{
-				CampaignId:        r.CampaignId,
-				OperatorCode:      r.OperatorCode,
-				Msisdn:            r.Msisdn,
-				TransactionResult: "paid",
-			})
 			be.m.AddToDbSuccess.Inc()
 			be.m.MO.Inc()
 			SinceLastSuccessPay.Set(.0)
@@ -290,12 +281,6 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 			r.SubscriptionStatus = "paid"
 			r.Result = "paid"
 			writeTransaction(r)
-			reporter_client.IncPaid(reporter_collector.Collect{
-				CampaignId:        r.CampaignId,
-				OperatorCode:      r.OperatorCode,
-				Msisdn:            r.Msisdn,
-				TransactionResult: "paid",
-			})
 		case 6:
 			tl.ResponseDecision = "unsubscribe all"
 			logCtx.Debug(tl.ResponseDecision)

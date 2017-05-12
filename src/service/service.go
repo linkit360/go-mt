@@ -9,9 +9,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
-	content_service "github.com/linkit360/go-contentd/service"
+	content_service "github.com/linkit360/go-contentd/server/src/service"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
-	reporter_client "github.com/linkit360/go-reporter/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	"github.com/linkit360/go-utils/db"
 	rec "github.com/linkit360/go-utils/rec"
@@ -58,7 +57,6 @@ func Init(
 	name string,
 	serviceConf MTServiceConfig,
 	inMemConfig inmem_client.ClientConfig,
-	reporterConfig reporter_client.ClientConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
@@ -73,9 +71,6 @@ func Init(
 
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
-	}
-	if err := reporter_client.Init(reporterConfig); err != nil {
-		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
 	}
 
 	svc.conf = serviceConf
