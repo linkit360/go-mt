@@ -77,7 +77,7 @@ func Init(
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
 	initMetrics(appName)
 
-	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig)
+	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig, contentConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
 	svc.ch = initCheese(serviceConf.Cheese, consumerConfig)
 	svc.qr = initQRTech(serviceConf.QRTech, consumerConfig)

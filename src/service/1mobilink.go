@@ -14,6 +14,7 @@ import (
 	amqp_driver "github.com/streadway/amqp"
 
 	acceptor "github.com/linkit360/go-acceptor-structs"
+	content_client "github.com/linkit360/go-contentd/rpcclient"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
@@ -56,7 +57,11 @@ type ChannelNotifyConfig struct {
 	Url     string `yaml:"url"`
 }
 
-func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *mobilink {
+func initMobilink(
+	mbConfig MobilinkConfig,
+	consumerConfig amqp.ConsumerConfig,
+	contentConf content_client.ClientConfig,
+) *mobilink {
 	if !mbConfig.Enabled {
 		return nil
 	}
@@ -91,6 +96,7 @@ func initMobilink(mbConfig MobilinkConfig, consumerConfig amqp.ConsumerConfig) *
 	)
 
 	if mb.conf.Content.Enabled {
+		content_client.Init(contentConf)
 		go func() {
 			for range time.Tick(time.Duration(mb.conf.Content.FetchPeriodSeconds) * time.Second) {
 				mb.sendContent()
