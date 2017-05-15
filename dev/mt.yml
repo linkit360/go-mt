@@ -180,7 +180,6 @@ consumer:
   reconnect_delay: 10
 
 publisher:
-  pending_buffer_path: /home/centos/linkit/mt_manager_pending.json
   chan_capacity: 10
   conn:
     user: linkit

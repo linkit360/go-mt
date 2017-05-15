@@ -209,9 +209,10 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 	}
 
 	logCtx.WithFields(log.Fields{
-		"paid":   r.Paid,
-		"result": r.Result,
-		"status": r.SubscriptionStatus,
+		"paid":           r.Paid,
+		"result":         r.Result,
+		"status":         r.SubscriptionStatus,
+		"attempts_count": r.AttemptsCount,
 	}).Info("response")
 
 	if err := writeSubscriptionStatus(*r); err != nil {
