@@ -170,6 +170,7 @@ func (mb *mobilink) processPeriodic() {
 		}
 		begin := time.Now()
 		if err = rec.SetSubscriptionStatus("pending", subscr.SubscriptionId); err != nil {
+			SetPendingStatusErrors.Inc()
 			return
 		}
 		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())

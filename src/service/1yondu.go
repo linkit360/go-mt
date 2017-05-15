@@ -226,6 +226,7 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 
 	begin := time.Now()
 	if err = rec.SetSubscriptionStatus("pending", r.SubscriptionId); err != nil {
+		SetPendingStatusErrors.Inc()
 		return
 	}
 	SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())

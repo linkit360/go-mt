@@ -94,9 +94,10 @@ func handleRetry(record rec.Record, notifyFnSendChargeRequest func(uint8, rec.Re
 	begin := time.Now()
 	if err := rec.SetRetryStatus("pending", record.RetryId); err != nil {
 		Errors.Inc()
+		SetPendingStatusErrors.Inc()
 		return err
 	}
-	SetRetryPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	SetRenewalPendingStatusDuration.Observe(time.Since(begin).Seconds())
 
 	begin = time.Now()
 	priority := uint8(0)

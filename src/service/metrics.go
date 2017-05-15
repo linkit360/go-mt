@@ -11,7 +11,7 @@ import (
 var (
 	SinceLastSuccessPay              prometheus.Gauge
 	RetryProcessDuration             prometheus.Summary
-	SetRetryPendingStatusDuration    prometheus.Summary
+	SetRenewalPendingStatusDuration  prometheus.Summary
 	SetPeriodicPendingStatusDuration prometheus.Summary
 	SetPendingStatusErrors           m.Gauge
 
@@ -31,7 +31,7 @@ func newGaugeNotPaid(name, help string) m.Gauge {
 func initMetrics(appName string) {
 
 	RetryProcessDuration = m.NewSummary(appName+"_retry_process_duration_seconds", "retries after fetch processing duration in seconds")
-	SetRetryPendingStatusDuration = m.NewSummary(appName+"_set_retries_pending_status_db_duration_seconds", "set retries pending status duration seconds")
+	SetRenewalPendingStatusDuration = m.NewSummary(appName+"_set_retries_pending_status_db_duration_seconds", "set retries pending status duration seconds")
 	SetPeriodicPendingStatusDuration = m.NewSummary(appName+"_set_periodic_pending_status_db_duration_seconds", "set periodic pending status duration seconds")
 
 	NotifyErrors = m.NewGauge("", "", "notify_errors", "notify errors")
