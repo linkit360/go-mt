@@ -37,6 +37,8 @@ service:
       enabled: false
       fetch_period_seconds: 10
       fetch_limit: 1
+      url: http://dev.pk.linkit360.ru/u/
+
     new:
       name: mobilink_new_subscriptions
       enabled: true

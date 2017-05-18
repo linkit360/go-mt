@@ -410,6 +410,11 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 		"action": "handle response",
 		"tid":    r.Tid,
 	})
+	if r.ServiceId == 0 {
+		mb.m.ResponseErrors.Inc()
+		logCtx.WithFields(log.Fields{}).Error("service id is empty")
+		return nil
+	}
 
 	flagUnsubscribe := false
 
@@ -451,7 +456,15 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	if err := processResponse(&r, false); err != nil {
 		return err
 	}
-	if r.Paid == true {
+	if r.Type == "injection" || r.Type == "expired" {
+		logCtx.WithFields(log.Fields{
+			"msisdn":             r.Msisdn,
+			"type":               r.Type,
+			"transaction_result": r.Result,
+		}).Info("done")
+		return nil
+	}
+	if r.Paid == true && r.Type == "" {
 		mb.sendChannelNotify("renewal", r)
 	}
 
