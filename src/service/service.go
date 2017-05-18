@@ -74,6 +74,9 @@ func Init(
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
 	}
+	if err := reporter_client.Init(reporterConfig); err != nil {
+		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
+	}
 
 	svc.conf = serviceConf
 	svc.retriesWg = make(map[int64]*sync.WaitGroup)
@@ -81,7 +84,7 @@ func Init(
 
 	svc.mb = initMobilink(serviceConf.Mobilink, consumerConfig, contentConfig)
 	svc.y = initYondu(serviceConf.Yondu, consumerConfig, contentConfig)
-	svc.ch = initCheese(serviceConf.Cheese, reporterConfig, consumerConfig)
+	svc.ch = initCheese(serviceConf.Cheese, consumerConfig)
 	svc.qr = initQRTech(serviceConf.QRTech, consumerConfig)
 	svc.bee = initBeeline(serviceConf.Beeline, consumerConfig)
 }
@@ -118,8 +121,8 @@ func getContentUniqueHash(r rec.Record) (string, error) {
 	contentProperties, err := content_client.GetUniqueUrl(content_service.GetContentParams{
 		Msisdn:         r.Msisdn,
 		Tid:            r.Tid,
-		ServiceId:      r.ServiceId,
-		CampaignId:     r.CampaignId,
+		ServiceCode:    r.ServiceCode,
+		CampaignCode:   r.CampaignCode,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
 		SubscriptionId: r.SubscriptionId,
@@ -129,7 +132,7 @@ func getContentUniqueHash(r rec.Record) (string, error) {
 		ContentdRPCDialError.Inc()
 		err = fmt.Errorf("content_client.GetUniqueUrl: %s", contentProperties.Error)
 		logCtx.WithFields(log.Fields{
-			"serviceId": r.ServiceId,
+			"serviceId": r.ServiceCode,
 			"error":     err.Error(),
 		}).Error("contentd internal error")
 		return "", err
@@ -138,7 +141,7 @@ func getContentUniqueHash(r rec.Record) (string, error) {
 		ContentdRPCDialError.Inc()
 		err = fmt.Errorf("content_client.GetUniqueUrl: %s", err.Error())
 		logCtx.WithFields(log.Fields{
-			"serviceId": r.ServiceId,
+			"serviceId": r.ServiceCode,
 			"error":     err.Error(),
 		}).Error("cannot get unique content url")
 		return "", err

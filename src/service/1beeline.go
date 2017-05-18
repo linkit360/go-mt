@@ -253,12 +253,13 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 			CountryCode:   r.CountryCode,
 			Error:         r.OperatorErr,
 			Price:         r.Price,
-			ServiceId:     r.ServiceId,
-			CampaignId:    r.CampaignId,
+			ServiceCode:   r.ServiceCode,
+			CampaignCode:  r.CampaignCode,
 			RequestBody:   string(fieldsJSON),
 			ResponseBody:  "",
 			ResponseCode:  200,
 			Type:          "smpp",
+			Notice:        i.ShortMessage + fmt.Sprintf(" source_port: %v", i.SourcePort),
 		}
 
 		switch i.SourcePort {
@@ -324,7 +325,6 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 		OperatorCode:  be.conf.MCCMNC,
 		Msisdn:        i.SourceAddr,
 		OperatorToken: i.Seq,
-		Notice:        i.ShortMessage + fmt.Sprintf(" source_port: %v", i.SourcePort),
 	}
 	serviceToken := i.DstAddr[0:4] // short number
 	campaign, err := inmem_client.GetCampaignByKeyWord(serviceToken)
@@ -339,14 +339,14 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 		return
 	}
 
-	r.CampaignId = campaign.Id
-	r.ServiceId = campaign.ServiceId
-	service, err := inmem_client.GetServiceById(campaign.ServiceId)
+	r.CampaignCode = campaign.Code
+	r.ServiceCode = campaign.ServiceCode
+	service, err := inmem_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {
 		Errors.Inc()
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
-			"service_id": campaign.ServiceId,
+			"service_id": campaign.ServiceCode,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
 		return

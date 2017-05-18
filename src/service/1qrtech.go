@@ -3,13 +3,14 @@ package service
 import (
 	"database/sql"
 	"encoding/json"
-	"strconv"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
+	"github.com/linkit360/go-reporter/server/src/collector"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -189,6 +190,18 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 			Errors.Inc()
 		}
 
+		r.Result = ""
+		r.AttemptsCount = 0
+		reporter_client.IncTransaction(collector.Collect{
+			Tid:               r.Tid,
+			CampaignCode:      r.CampaignCode,
+			OperatorCode:      r.OperatorCode,
+			Msisdn:            r.Msisdn,
+			Price:             r.Price,
+			TransactionResult: r.Result,
+			AttemptsCount:     r.AttemptsCount,
+		})
+
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{
@@ -286,13 +299,13 @@ func (qr *qrtech) initActiveSubscriptionsCache() {
 		byKey: make(map[string]rec.ActiveSubscription),
 	}
 	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
+		key := v.Msisdn + "-" + v.CampaignCode
 		qr.activeSubscriptions.byKey[key] = v
 	}
 }
 
 func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscription, err error) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	as, found := qr.activeSubscriptions.byKey[key]
 	if !found {
 		var oldRec rec.Record
@@ -313,7 +326,7 @@ func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscri
 }
 
 func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	if _, found := qr.activeSubscriptions.byKey[key]; found {
 		return
 	}
@@ -329,7 +342,7 @@ func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
 }
 
 func (qr *qrtech) deleteActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	delete(qr.activeSubscriptions.byKey, key)
 	log.WithFields(log.Fields{
 		"tid": r.Tid,

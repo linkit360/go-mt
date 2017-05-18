@@ -233,7 +233,7 @@ func (y *yondu) charge(r rec.Record, priority uint8) (err error) {
 
 	logCtx.WithFields(log.Fields{
 		"amount":     r.Price,
-		"service_id": r.ServiceId,
+		"service_id": r.ServiceCode,
 		"priority":   priority,
 	}).Info("charge")
 	return
@@ -247,13 +247,13 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
-	service, err := inmem_client.GetServiceById(r.ServiceId)
+	service, err := inmem_client.GetServiceByCode(r.ServiceCode)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
-			"serviceId": r.ServiceId,
+			"serviceId": r.ServiceCode,
 			"error":     err.Error(),
 		}).Error("cannot get service by id")
 		return
@@ -264,7 +264,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"error":      err.Error(),
-			"service_id": r.ServiceId,
+			"service_id": r.ServiceCode,
 		}).Error("cannot get service by id")
 		return err
 	}
@@ -314,7 +314,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		if err == nil && r.CampaignId == 0 {
+		if err == nil && r.CampaignCode == "" {
 			goto ack
 		}
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
@@ -325,9 +325,9 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			CountryCode:      r.CountryCode,
 			Error:            r.OperatorErr,
 			Price:            r.Price,
-			ServiceId:        r.ServiceId,
+			ServiceCode:      r.ServiceCode,
 			SubscriptionId:   r.SubscriptionId,
-			CampaignId:       r.CampaignId,
+			CampaignCode:     r.CampaignCode,
 			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: "",
@@ -438,15 +438,15 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		}).Error("cannot get campaign by keyword")
 		return
 	}
-	svc, err = inmem_client.GetServiceById(campaign.ServiceId)
+	svc, err = inmem_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		log.WithFields(log.Fields{
 			"message":    req.Params.Message,
-			"serviceId":  campaign.ServiceId,
-			"campaignId": campaign.Id,
+			"serviceId":  campaign.ServiceCode,
+			"campaignId": campaign.Code,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
 		return
@@ -462,8 +462,8 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		OperatorToken:            req.Params.RRN,
 		Publisher:                "",
 		Pixel:                    "",
-		CampaignId:               campaign.Id,
-		ServiceId:                campaign.ServiceId,
+		CampaignCode:             campaign.Code,
+		ServiceCode:              campaign.ServiceCode,
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
 		RetryDays:                svc.RetryDays,
@@ -489,6 +489,8 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
+		var ok bool
+		var resultCode string
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
 
@@ -527,17 +529,27 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 			CountryCode:      y.conf.CountryCode,
 			Error:            r.OperatorErr,
 			Price:            r.Price,
-			ServiceId:        r.ServiceId,
+			ServiceCode:      r.ServiceCode,
 			SubscriptionId:   r.SubscriptionId,
-			CampaignId:       r.CampaignId,
+			CampaignCode:     r.CampaignCode,
 			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: r.SubscriptionStatus,
 			ResponseCode:     200,
 			SentAt:           r.SentAt,
 			Type:             e.EventName,
-			Notice:           r.Notice,
 		}
+		resultCode, ok = y.conf.DNResponseCode[e.EventData.Params.Code]
+		if ok {
+			transactionMsg.Notice = resultCode
+		} else {
+			logCtx.WithFields(log.Fields{
+				"error": "cannot find DN code",
+				"code":  e.EventData.Params.Code,
+			}).Warning("unknown code")
+			transactionMsg.Notice = "unknown dn code"
+		}
+
 		if transErr := publishTransactionLog("dn", transactionMsg); transErr != nil {
 			logCtx.WithFields(log.Fields{
 				"event": e.EventName,
@@ -605,17 +617,6 @@ func (y *yondu) getRecordByDN(req yondu_service.DNParameters) (r rec.Record, err
 	logCtx := log.WithFields(log.Fields{
 		"rrn": req.Params.RRN,
 	})
-
-	resultCode, ok := y.conf.DNResponseCode[req.Params.Code]
-	if ok {
-		r.Notice = resultCode
-	} else {
-		logCtx.WithFields(log.Fields{
-			"error": "cannot find DN code",
-			"code":  req.Params.Code,
-		}).Warning("unknown code")
-		r.Notice = "unknown dn code"
-	}
 
 	r, err = rec.GetSubscriptionByToken(req.Params.RRN)
 	if err != nil && err != sql.ErrNoRows {
@@ -813,12 +814,12 @@ func (y *yondu) initActiveSubscriptionsCache() {
 		byKey: make(map[string]rec.ActiveSubscription),
 	}
 	for _, v := range prev {
-		key := v.Msisdn + strconv.FormatInt(v.CampaignId, 10)
+		key := v.Msisdn + "-" + v.CampaignCode
 		y.activeSubscriptions.byKey[key] = v
 	}
 }
 func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	_, found := y.activeSubscriptions.byKey[key]
 	log.WithFields(log.Fields{
 		"tid":   r.Tid,
@@ -828,7 +829,7 @@ func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
 	return found
 }
 func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	if _, found := y.activeSubscriptions.byKey[key]; found {
 		return
 	}
@@ -843,7 +844,7 @@ func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
 }
 
 func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.CampaignId, 10)
+	key := r.Msisdn + "-" + r.CampaignCode
 	delete(y.activeSubscriptions.byKey, key)
 	log.WithFields(log.Fields{
 		"tid": r.Tid,

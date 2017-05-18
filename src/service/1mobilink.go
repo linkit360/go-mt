@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -142,13 +141,13 @@ func (mb *mobilink) processPeriodic() {
 			"action": "periodic",
 		})
 
-		s, err := inmem_client.GetServiceById(subscr.ServiceId)
+		s, err := inmem_client.GetServiceByCode(subscr.ServiceCode)
 		if err != nil {
 			Errors.Inc()
 			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
-				"service_id": subscr.ServiceId,
+				"service_id": subscr.ServiceCode,
 			}).Error("cannot get service by id")
 			continue
 		}
@@ -216,7 +215,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		})
 
 		// first checks
-		if r.Msisdn == "" || r.CampaignId == 0 {
+		if r.Msisdn == "" || r.CampaignCode == "" {
 			mb.m.Dropped.Inc()
 			mb.m.Empty.Inc()
 
@@ -229,7 +228,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			goto ack
 		}
 
-		s, err = inmem_client.GetServiceById(r.ServiceId)
+		s, err = inmem_client.GetServiceByCode(r.ServiceCode)
 		if err != nil {
 			Errors.Inc()
 			time.Sleep(1)
@@ -237,7 +236,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
-				"service_id": r.ServiceId,
+				"service_id": r.ServiceCode,
 			}).Error("cannot get service by id")
 			msg.Nack(false, true)
 			continue
@@ -410,7 +409,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 		"action": "handle response",
 		"tid":    r.Tid,
 	})
-	if r.ServiceId == 0 {
+	if r.ServiceCode == "" {
 		mb.m.ResponseErrors.Inc()
 		logCtx.WithFields(log.Fields{}).Error("service id is empty")
 		return nil
@@ -418,7 +417,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 
 	flagUnsubscribe := false
 
-	s, err = inmem_client.GetServiceById(r.ServiceId)
+	s, err = inmem_client.GetServiceByCode(r.ServiceCode)
 	if err != nil {
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		return err
@@ -639,19 +638,19 @@ func (mb *mobilink) sendContent() error {
 			"action": "send content",
 		})
 
-		s, err := inmem_client.GetServiceById(subscr.ServiceId)
+		s, err := inmem_client.GetServiceByCode(subscr.ServiceCode)
 		if err != nil {
 			Errors.Inc()
 			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
-				"service_id": subscr.ServiceId,
+				"service_id": subscr.ServiceCode,
 			}).Error("cannot get service by id")
 			return err
 		}
 		if s.SMSOnContent == "" {
 			logCtx.WithFields(log.Fields{
-				"service_id": subscr.ServiceId,
+				"service_id": subscr.ServiceCode,
 			}).Debug("sms on content is empty, skip content sending")
 			return nil
 		}
@@ -693,19 +692,19 @@ func (mb *mobilink) initActiveSubscriptionsCache() {
 	for _, v := range prev {
 		storeDuration := time.Duration(24*v.RetryDays)*time.Hour - time.Now().UTC().Sub(v.CreatedAt) + time.Hour
 		if storeDuration > 0 {
-			key := v.Msisdn + strconv.FormatInt(v.ServiceId, 10)
+			key := v.Msisdn + "-" + v.ServiceCode
 			mb.prevCache.Set(key, v.CreatedAt, storeDuration)
 		}
 	}
 }
 
 func (mb *mobilink) removeActiveSubscription(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + r.ServiceCode
 	mb.prevCache.Delete(key)
 }
 
 func (mb *mobilink) getSubscriptionStartTime(r rec.Record) time.Time {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + "-" + r.ServiceCode
 	createdAtI, found := mb.prevCache.Get(key)
 	if !found {
 		return time.Now().UTC()
@@ -721,7 +720,7 @@ func (mb *mobilink) getSubscriptionStartTime(r rec.Record) time.Time {
 }
 
 func (mb *mobilink) isRejectedFn(r rec.Record) bool {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + "-" + r.ServiceCode
 	createdAtI, found := mb.prevCache.Get(key)
 	if !found {
 		return false
@@ -741,7 +740,7 @@ func (mb *mobilink) isRejectedFn(r rec.Record) bool {
 }
 
 func (mb *mobilink) setActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + strconv.FormatInt(r.ServiceId, 10)
+	key := r.Msisdn + "-" + r.ServiceCode
 	_, found := mb.prevCache.Get(key)
 	if !found {
 		mb.prevCache.Set(key, time.Now().UTC(), time.Duration(24*r.RetryDays)*time.Hour)

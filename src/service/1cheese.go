@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -36,7 +35,6 @@ type CheeseConfig struct {
 
 func initCheese(
 	cheeseConf CheeseConfig,
-	reporterConfig reporter_client.ClientConfig,
 	consumerConfig amqp.ConsumerConfig,
 ) *cheese {
 	if !cheeseConf.Enabled {
@@ -44,9 +42,6 @@ func initCheese(
 	}
 	ch := &cheese{
 		conf: cheeseConf,
-	}
-	if err := reporter_client.Init(reporterConfig); err != nil {
-		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
 	}
 
 	if cheeseConf.NewSubscription.Enabled {
@@ -134,7 +129,7 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 		r.Result = "paid"
 		reporter_client.IncTransaction(collector.Collect{
 			Tid:               r.Tid,
-			CampaignId:        r.CampaignId,
+			CampaignCode:      r.CampaignCode,
 			OperatorCode:      r.OperatorCode,
 			Msisdn:            r.Msisdn,
 			Price:             r.Price,

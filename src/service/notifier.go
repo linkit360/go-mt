@@ -109,7 +109,7 @@ func notifyPixel(r rec.Record) (err error) {
 	msg := pixels.Pixel{
 		Tid:            r.Tid,
 		Msisdn:         r.Msisdn,
-		CampaignId:     r.CampaignId,
+		CampaignCode:   r.CampaignCode,
 		SubscriptionId: r.SubscriptionId,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
@@ -150,7 +150,7 @@ func notifyRestorePixel(r rec.Record) (err error) {
 	msg := pixels.Pixel{
 		Tid:            r.Tid,
 		Msisdn:         r.Msisdn,
-		CampaignId:     r.CampaignId,
+		CampaignCode:   r.CampaignCode,
 		SubscriptionId: r.SubscriptionId,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
