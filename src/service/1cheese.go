@@ -2,11 +2,14 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
+	"github.com/linkit360/go-reporter/server/src/collector"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -33,6 +36,7 @@ type CheeseConfig struct {
 
 func initCheese(
 	cheeseConf CheeseConfig,
+	reporterConfig reporter_client.ClientConfig,
 	consumerConfig amqp.ConsumerConfig,
 ) *cheese {
 	if !cheeseConf.Enabled {
@@ -41,6 +45,10 @@ func initCheese(
 	ch := &cheese{
 		conf: cheeseConf,
 	}
+	if err := reporter_client.Init(reporterConfig); err != nil {
+		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
+	}
+
 	if cheeseConf.NewSubscription.Enabled {
 		if cheeseConf.NewSubscription.Name == "" {
 			log.Fatal("empty queue name new subscriptions")
@@ -122,6 +130,17 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 		} else {
 			ch.m.AddToDbSuccess.Inc()
 		}
+
+		r.Result = "paid"
+		reporter_client.IncTransaction(collector.Collect{
+			Tid:               r.Tid,
+			CampaignId:        r.CampaignId,
+			OperatorCode:      r.OperatorCode,
+			Msisdn:            r.Msisdn,
+			Price:             r.Price,
+			TransactionResult: r.Result,
+			AttemptsCount:     r.AttemptsCount,
+		})
 
 		if err := notifyRestorePixel(r); err != nil {
 			Errors.Inc()

@@ -12,6 +12,7 @@ import (
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	inmem_client "github.com/linkit360/go-inmem/rpcclient"
 	"github.com/linkit360/go-mt/src/service"
+	reporter_client "github.com/linkit360/go-reporter/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	"github.com/linkit360/go-utils/db"
 )
@@ -21,14 +22,15 @@ type ServerConfig struct {
 }
 
 type AppConfig struct {
-	AppName              string                      `yaml:"app_name"`
-	Server               ServerConfig                `yaml:"server"`
-	Service              service.MTServiceConfig     `yaml:"service"`
-	InMemClientConfig    inmem_client.ClientConfig   `yaml:"inmem_client"`
-	ContentdClientConfig content_client.ClientConfig `yaml:"contentd_client"`
-	DbConf               db.DataBaseConfig           `yaml:"db"`
-	Publisher            amqp.NotifierConfig         `yaml:"publisher"`
-	Consumer             amqp.ConsumerConfig         `yaml:"consumer"`
+	AppName              string                       `yaml:"app_name"`
+	Server               ServerConfig                 `yaml:"server"`
+	Service              service.MTServiceConfig      `yaml:"service"`
+	InMemClientConfig    inmem_client.ClientConfig    `yaml:"inmem_client"`
+	ReporterConfig       reporter_client.ClientConfig `yaml:"reporter_client"`
+	ContentdClientConfig content_client.ClientConfig  `yaml:"contentd_client"`
+	DbConf               db.DataBaseConfig            `yaml:"db"`
+	Publisher            amqp.NotifierConfig          `yaml:"publisher"`
+	Consumer             amqp.ConsumerConfig          `yaml:"consumer"`
 }
 
 func LoadConfig() AppConfig {
