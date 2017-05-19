@@ -339,14 +339,14 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 		return
 	}
 
-	r.CampaignCode = campaign.Code
-	r.ServiceCode = campaign.ServiceCode
-	service, err := inmem_client.GetServiceByCode(campaign.ServiceCode)
+	r.CampaignCode = campaign.Properties.Code
+	r.ServiceCode = campaign.Properties.ServiceCode
+	service, err := inmem_client.GetServiceByCode(campaign.Properties.ServiceCode)
 	if err != nil {
 		Errors.Inc()
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
-			"service_id": campaign.ServiceCode,
+			"service_id": campaign.Properties.ServiceCode,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
 		return
