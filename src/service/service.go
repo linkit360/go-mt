@@ -10,7 +10,7 @@ import (
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	content_service "github.com/linkit360/go-contentd/server/src/service"
-	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	inmem_client "github.com/linkit360/go-mid/rpcclient"
 	reporter_client "github.com/linkit360/go-reporter/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	"github.com/linkit360/go-utils/db"
@@ -40,10 +40,12 @@ type MTServiceConfig struct {
 }
 
 type QueuesConfig struct {
-	Pixels         string `default:"pixels" yaml:"pixels"`
-	RestorePixels  string `default:"restore_pixels" yaml:"restore_pixels"`
-	DBActions      string `default:"mt_manager" yaml:"db_actions"`
-	TransactionLog string `default:"transaction_log" yaml:"transaction_log"`
+	Pixels               string `default:"pixels" yaml:"pixels"`
+	RestorePixels        string `default:"restore_pixels" yaml:"restore_pixels"`
+	DBActions            string `default:"mt_manager" yaml:"db_actions"`
+	TransactionLog       string `default:"transaction_log" yaml:"transaction_log"`
+	ReporterMo           string `default:"reporter_mo" yaml:"reporter_mo"`
+	RepoerterTransaction string `default:"reporter_transaction" yaml:"reporter_transaction"`
 }
 type RetriesConfig struct {
 	Enabled         bool     `yaml:"enabled"`
@@ -58,7 +60,6 @@ func Init(
 	name string,
 	serviceConf MTServiceConfig,
 	inMemConfig inmem_client.ClientConfig,
-	reporterConfig reporter_client.ClientConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
@@ -73,9 +74,6 @@ func Init(
 
 	if err := inmem_client.Init(inMemConfig); err != nil {
 		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
-	}
-	if err := reporter_client.Init(reporterConfig); err != nil {
-		log.Fatal(fmt.Errorf("reporter_client.Init: %s", err.Error()))
 	}
 
 	svc.conf = serviceConf

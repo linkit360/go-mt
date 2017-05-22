@@ -8,7 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
-	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	inmem_client "github.com/linkit360/go-mid/rpcclient"
 	beeline_service "github.com/linkit360/go-operator/ru/beeline/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"

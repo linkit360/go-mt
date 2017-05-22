@@ -14,8 +14,8 @@ import (
 	amqp_driver "github.com/streadway/amqp"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
-	inmem_client "github.com/linkit360/go-inmem/rpcclient"
-	inmem_service "github.com/linkit360/go-inmem/service"
+	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	inmem_service "github.com/linkit360/go-mid/service"
 	yondu_service "github.com/linkit360/go-operator/ph/yondu/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"

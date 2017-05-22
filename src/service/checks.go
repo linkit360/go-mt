@@ -5,7 +5,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	inmem_client "github.com/linkit360/go-inmem/rpcclient"
+	inmem_client "github.com/linkit360/go-mid/rpcclient"
 	rec "github.com/linkit360/go-utils/rec"
 )
 

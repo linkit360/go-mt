@@ -7,6 +7,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	mid "github.com/linkit360/go-mid/service"
 	pixels "github.com/linkit360/go-pixel/src/notifier"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"
@@ -202,4 +203,29 @@ func publishTransactionLog(eventName string,
 	}
 	svc.notifier.Publish(amqp.AMQPMessage{svc.conf.Queues.TransactionLog, 0, body, event.EventName})
 	return nil
+}
+
+func publishReporter(queue string, r rec.Record) (err error) {
+	event := amqp.EventNotify{
+		EventName: "new mo",
+		EventData: mid.Collect{
+			Tid:               r.Tid,
+			CampaignCode:      r.CampaignCode,
+			OperatorCode:      r.OperatorCode,
+			Msisdn:            r.Msisdn,
+			Price:             r.Price,
+			TransactionResult: r.Result,
+			AttemptsCount:     r.AttemptsCount,
+		},
+	}
+	var body []byte
+	body, err = json.Marshal(event)
+
+	if err != nil {
+		return
+	}
+	svc.notifier.Publish(amqp.AMQPMessage{
+		QueueName: queue,
+		Body:      body,
+	})
 }

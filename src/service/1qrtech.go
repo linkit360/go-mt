@@ -9,8 +9,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	reporter_client "github.com/linkit360/go-reporter/rpcclient"
-	"github.com/linkit360/go-reporter/server/src/collector"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -192,16 +190,7 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 		r.Result = ""
 		r.AttemptsCount = 0
-		reporter_client.IncTransaction(collector.Collect{
-			Tid:               r.Tid,
-			CampaignCode:      r.CampaignCode,
-			OperatorCode:      r.OperatorCode,
-			Msisdn:            r.Msisdn,
-			Price:             r.Price,
-			TransactionResult: r.Result,
-			AttemptsCount:     r.AttemptsCount,
-		})
-
+		publishReporter(svc.conf.Queues.RepoerterTransaction, r)
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{
