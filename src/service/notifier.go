@@ -228,4 +228,5 @@ func publishReporter(queue string, r rec.Record) (err error) {
 		QueueName: queue,
 		Body:      body,
 	})
+	return nil
 }
