@@ -264,7 +264,6 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			continue
 		}
 
-		// acknowledge
 	ack:
 		if err := msg.Ack(false); err != nil {
 			Errors.Inc()
@@ -386,6 +385,7 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	ack:
 		if err := msg.Ack(false); err != nil {
 			Errors.Inc()
+
 			log.WithFields(log.Fields{
 				"tid":   e.EventData.Tid,
 				"error": err.Error(),

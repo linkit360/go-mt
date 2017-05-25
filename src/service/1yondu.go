@@ -412,6 +412,8 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 	ack:
 		if err := msg.Ack(false); err != nil {
+			Errors.Inc()
+
 			log.WithFields(log.Fields{
 				"mo":    msg.Body,
 				"error": err.Error(),
@@ -593,6 +595,8 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 
 	ack:
 		if err := msg.Ack(false); err != nil {
+			Errors.Inc()
+
 			logCtx.WithFields(log.Fields{
 				"dn":    msg.Body,
 				"error": err.Error(),

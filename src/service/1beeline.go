@@ -178,7 +178,7 @@ func (be *beeline) processMO(deliveries <-chan amqp_driver.Delivery) {
 	ack:
 		if err := msg.Ack(false); err != nil {
 			log.WithFields(log.Fields{
-				"mo":    msg.Body,
+				"mo":    string(msg.Body),
 				"error": err.Error(),
 			}).Error("cannot ack")
 			time.Sleep(time.Second)
@@ -305,6 +305,7 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 
 	ack:
 		if err = msg.Ack(false); err != nil {
+			Errors.Inc()
 			log.WithFields(log.Fields{
 				"mo":    msg.Body,
 				"error": err.Error(),

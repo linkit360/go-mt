@@ -190,9 +190,11 @@ func (qr *qrtech) processMO(deliveries <-chan amqp_driver.Delivery) {
 
 		r.Result = ""
 		r.AttemptsCount = 0
-		publishReporter(svc.conf.Queues.RepoerterTransaction, r)
+		publishReporter(svc.conf.Queues.ReporterTransaction, r)
 	ack:
 		if err := msg.Ack(false); err != nil {
+			Errors.Inc()
+
 			log.WithFields(log.Fields{
 				"mo":    msg.Body,
 				"error": err.Error(),
@@ -264,6 +266,8 @@ func (qr *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 
 	ack:
 		if err := msg.Ack(false); err != nil {
+			Errors.Inc()
+
 			log.WithFields(log.Fields{
 				"dn":    msg.Body,
 				"error": err.Error(),

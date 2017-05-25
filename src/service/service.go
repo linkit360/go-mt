@@ -39,12 +39,12 @@ type MTServiceConfig struct {
 }
 
 type QueuesConfig struct {
-	Pixels               string `default:"pixels" yaml:"pixels"`
-	RestorePixels        string `default:"restore_pixels" yaml:"restore_pixels"`
-	DBActions            string `default:"mt_manager" yaml:"db_actions"`
-	TransactionLog       string `default:"transaction_log" yaml:"transaction_log"`
-	ReporterMo           string `default:"reporter_mo" yaml:"reporter_mo"`
-	RepoerterTransaction string `default:"reporter_transaction" yaml:"reporter_transaction"`
+	Pixels              string `default:"pixels" yaml:"pixels"`
+	RestorePixels       string `default:"restore_pixels" yaml:"restore_pixels"`
+	DBActions           string `default:"mt_manager" yaml:"db_actions"`
+	TransactionLog      string `default:"transaction_log" yaml:"transaction_log"`
+	ReporterMo          string `default:"reporter_mo" yaml:"reporter_mo"`
+	ReporterTransaction string `default:"reporter_transaction" yaml:"reporter_transaction"`
 }
 type RetriesConfig struct {
 	Enabled         bool     `yaml:"enabled"`
