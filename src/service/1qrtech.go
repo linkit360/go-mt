@@ -216,7 +216,6 @@ func (qr *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
 		var err error
-		var subscriptionId int64
 		var e QRTechEventNotifyDN
 		var as rec.ActiveSubscription
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
@@ -233,13 +232,14 @@ func (qr *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 
 		as, err = qr.getActiveSubscriptionCache(r)
 		if err != nil {
+			time.Sleep(time.Second)
 			msg.Nack(false, true)
 			log.WithFields(log.Fields{
 				"msg": "requeue",
 			}).Error("consume from " + qr.conf.DN.Name)
 			continue
 		}
-		if subscriptionId == 0 {
+		if as.Id == 0 {
 			qr.m.DNDropped.Inc()
 
 			log.WithFields(log.Fields{
@@ -301,16 +301,23 @@ func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscri
 		oldRec, err = rec.GetSubscriptionByMsisdn(r.Msisdn)
 		if err != nil {
 			if err == sql.ErrNoRows {
+				err = nil
 				return
 			}
 			return
 		}
+
 		as = rec.ActiveSubscription{
 			Id:            oldRec.SubscriptionId,
 			AttemptsCount: oldRec.AttemptsCount,
 		}
 		return
 	}
+	log.WithFields(log.Fields{
+		"tid":             r.Tid,
+		"subscription_id": as.Id,
+		"attempts_count":  as.AttemptsCount,
+	}).Debug("get active subscriptions cache")
 	return
 }
 

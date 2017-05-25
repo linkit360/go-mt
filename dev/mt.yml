@@ -24,7 +24,7 @@ service:
     restore_pixels: restore_pixels
 
   mobilink:
-    enabled: true
+    enabled: false
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -123,7 +123,7 @@ service:
       threads_count: 10
 
   qrtech:
-    enabled: false
+    enabled: true
     operator_name: qrtech
     country_code: 66
     mcc: 520

@@ -437,15 +437,15 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		}).Error("cannot get campaign by keyword")
 		return
 	}
-	svc, err = inmem_client.GetServiceByCode(campaign.Properties.ServiceCode)
+	svc, err = inmem_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
 		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
 		log.WithFields(log.Fields{
 			"message":    req.Params.Message,
-			"serviceId":  campaign.Properties.ServiceCode,
-			"campaignId": campaign.Properties.Code,
+			"serviceId":  campaign.ServiceCode,
+			"campaignId": campaign.Code,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
 		return
@@ -461,8 +461,8 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		OperatorToken:            req.Params.RRN,
 		Publisher:                "",
 		Pixel:                    "",
-		CampaignCode:             campaign.Properties.Code,
-		ServiceCode:              campaign.Properties.ServiceCode,
+		CampaignCode:             campaign.Code,
+		ServiceCode:              campaign.ServiceCode,
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
 		RetryDays:                svc.RetryDays,
