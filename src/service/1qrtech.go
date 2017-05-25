@@ -323,10 +323,8 @@ func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscri
 
 func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
 	key := r.Msisdn + "-" + r.CampaignCode
-	if _, found := qr.activeSubscriptions.byKey[key]; found {
-		return
-	}
 
+	// even if found, we need update attempts count
 	qr.activeSubscriptions.byKey[key] = rec.ActiveSubscription{
 		Id:            r.SubscriptionId,
 		AttemptsCount: r.AttemptsCount,
