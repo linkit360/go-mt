@@ -12,9 +12,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	acceptor "github.com/linkit360/go-acceptor-structs"
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	inmem_client "github.com/linkit360/go-mid/rpcclient"
-	inmem_service "github.com/linkit360/go-mid/service"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
@@ -191,7 +191,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 		var err error
-		var s inmem_service.Service
+		var s acceptor.Service
 
 		logCtx := log.WithFields(log.Fields{
 			"action": "send content",
@@ -348,7 +348,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (mb *mobilink) setServiceFields(r *rec.Record, s inmem_service.Service) {
+func (mb *mobilink) setServiceFields(r *rec.Record, s acceptor.Service) {
 	r.Periodic = true
 	r.DelayHours = s.DelayHours
 	r.PaidHours = s.PaidHours
@@ -400,7 +400,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var err error
 	var downloadedContentCount int
 	var count int
-	var s inmem_service.Service
+	var s acceptor.Service
 	var gracePeriod time.Duration
 	var allowedSubscriptionPeriod time.Duration
 	var timePassedSinsceSubscribe time.Duration

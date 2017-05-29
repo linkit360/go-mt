@@ -13,9 +13,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
+	acceptor "github.com/linkit360/go-acceptor-structs"
 	content_client "github.com/linkit360/go-contentd/rpcclient"
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
-	inmem_service "github.com/linkit360/go-mid/service"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
+	mid_service "github.com/linkit360/go-mid/service"
 	yondu_service "github.com/linkit360/go-operator/ph/yondu/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"
@@ -246,7 +247,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	logCtx := log.WithFields(log.Fields{
 		"tid": r.Tid,
 	})
-	service, err := inmem_client.GetServiceByCode(r.ServiceCode)
+	service, err := mid_client.GetServiceByCode(r.ServiceCode)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
@@ -290,7 +291,7 @@ type YonduEventNotifyMO struct {
 func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
-		var s inmem_service.Service
+		var s acceptor.Service
 		var err error
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
@@ -425,10 +426,10 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc inmem_service.Service, err error) {
+func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc acceptor.Service, err error) {
 	keyWords := strings.Split(req.Params.Message, " ")
-	var campaign inmem_service.Campaign
-	campaign, err = inmem_client.GetCampaignByKeyWord(keyWords[0])
+	var campaign mid_service.Campaign
+	campaign, err = mid_client.GetCampaignByKeyWord(keyWords[0])
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
@@ -439,7 +440,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		}).Error("cannot get campaign by keyword")
 		return
 	}
-	svc, err = inmem_client.GetServiceByCode(campaign.ServiceCode)
+	svc, err = mid_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
