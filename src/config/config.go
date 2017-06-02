@@ -10,7 +10,7 @@ import (
 	"github.com/jinzhu/configor"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
 	"github.com/linkit360/go-mt/src/service"
 	"github.com/linkit360/go-utils/amqp"
 	"github.com/linkit360/go-utils/db"
@@ -23,9 +23,9 @@ type ServerConfig struct {
 type AppConfig struct {
 	AppName              string                      `yaml:"app_name"`
 	Server               ServerConfig                `yaml:"server"`
-	Service              service.MTServiceConfig     `yaml:"service"`
-	InMemClientConfig    inmem_client.ClientConfig   `yaml:"inmem_client"`
+	MidConfig            mid_client.ClientConfig     `yaml:"mid_client"`
 	ContentdClientConfig content_client.ClientConfig `yaml:"contentd_client"`
+	Service              service.MTServiceConfig     `yaml:"service"`
 	DbConf               db.DataBaseConfig           `yaml:"db"`
 	Publisher            amqp.NotifierConfig         `yaml:"publisher"`
 	Consumer             amqp.ConsumerConfig         `yaml:"consumer"`

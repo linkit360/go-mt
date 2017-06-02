@@ -8,7 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
 	beeline_service "github.com/linkit360/go-operator/ru/beeline/src/service"
 	transaction_log_service "github.com/linkit360/go-qlistener/src/service"
 	"github.com/linkit360/go-utils/amqp"
@@ -328,10 +328,10 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 		OperatorToken: i.Seq,
 	}
 	serviceToken := i.DstAddr[0:4] // short number
-	campaign, err := inmem_client.GetCampaignByKeyWord(serviceToken)
+	campaign, err := mid_client.GetCampaignByKeyWord(serviceToken)
 	if err != nil {
 		Errors.Inc()
-		err = fmt.Errorf("inmem_client.GetCampaignByKeyWord: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetCampaignByKeyWord: %s", err.Error())
 
 		logCtx.WithFields(log.Fields{
 			"serviceToken": serviceToken,
@@ -342,10 +342,10 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 
 	r.CampaignCode = campaign.Code
 	r.ServiceCode = campaign.ServiceCode
-	service, err := inmem_client.GetServiceByCode(campaign.ServiceCode)
+	service, err := mid_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {
 		Errors.Inc()
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"service_id": campaign.ServiceCode,
 			"error":      err.Error(),

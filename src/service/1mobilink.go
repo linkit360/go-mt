@@ -12,18 +12,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	acceptor "github.com/linkit360/go-acceptor-structs"
 	content_client "github.com/linkit360/go-contentd/rpcclient"
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
 	rec "github.com/linkit360/go-utils/rec"
+	xmp_api_structs "github.com/linkit360/xmp-api/src/structs"
 )
 
 // Mobilink telco handlers.
 // rejected rule configured in cofig (24h usually)
-
 type mobilink struct {
 	conf              MobilinkConfig
 	m                 *MobilinkMetrics
@@ -141,10 +140,10 @@ func (mb *mobilink) processPeriodic() {
 			"action": "periodic",
 		})
 
-		s, err := inmem_client.GetServiceByCode(subscr.ServiceCode)
+		s, err := mid_client.GetServiceByCode(subscr.ServiceCode)
 		if err != nil {
 			Errors.Inc()
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
 				"service_id": subscr.ServiceCode,
@@ -191,7 +190,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		var ns EventNotifyNewSubscription
 		var r rec.Record
 		var err error
-		var s acceptor.Service
+		var s xmp_api_structs.Service
 
 		logCtx := log.WithFields(log.Fields{
 			"action": "send content",
@@ -228,12 +227,12 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			goto ack
 		}
 
-		s, err = inmem_client.GetServiceByCode(r.ServiceCode)
+		s, err = mid_client.GetServiceByCode(r.ServiceCode)
 		if err != nil {
 			Errors.Inc()
 			time.Sleep(1)
 
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
 				"service_id": r.ServiceCode,
@@ -348,7 +347,7 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (mb *mobilink) setServiceFields(r *rec.Record, s acceptor.Service) {
+func (mb *mobilink) setServiceFields(r *rec.Record, s xmp_api_structs.Service) {
 	r.Periodic = true
 	r.DelayHours = s.DelayHours
 	r.PaidHours = s.PaidHours
@@ -400,7 +399,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var err error
 	var downloadedContentCount int
 	var count int
-	var s acceptor.Service
+	var s xmp_api_structs.Service
 	var gracePeriod time.Duration
 	var allowedSubscriptionPeriod time.Duration
 	var timePassedSinsceSubscribe time.Duration
@@ -412,15 +411,15 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 
 	if r.ServiceCode == "" {
 		mb.m.ResponseErrors.Inc()
-		logCtx.WithFields(log.Fields{}).Error("service id is empty")
+		logCtx.WithFields(log.Fields{}).Error("service code is empty")
 		return nil
 	}
 
 	flagUnsubscribe := false
 
-	s, err = inmem_client.GetServiceByCode(r.ServiceCode)
+	s, err = mid_client.GetServiceByCode(r.ServiceCode)
 	if err != nil {
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 		return err
 	}
 
@@ -639,10 +638,10 @@ func (mb *mobilink) sendContent() error {
 			"action": "send content",
 		})
 
-		s, err := inmem_client.GetServiceByCode(subscr.ServiceCode)
+		s, err := mid_client.GetServiceByCode(subscr.ServiceCode)
 		if err != nil {
 			Errors.Inc()
-			err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+			err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 			logCtx.WithFields(log.Fields{
 				"error":      err.Error(),
 				"service_id": subscr.ServiceCode,

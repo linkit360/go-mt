@@ -10,7 +10,7 @@ import (
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	content_service "github.com/linkit360/go-contentd/server/src/service"
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
 	"github.com/linkit360/go-utils/amqp"
 	"github.com/linkit360/go-utils/db"
 	rec "github.com/linkit360/go-utils/rec"
@@ -58,7 +58,7 @@ type RetriesConfig struct {
 func Init(
 	name string,
 	serviceConf MTServiceConfig,
-	inMemConfig inmem_client.ClientConfig,
+	midConfig mid_client.ClientConfig,
 	dbConf db.DataBaseConfig,
 	publisherConf amqp.NotifierConfig,
 	consumerConfig amqp.ConsumerConfig,
@@ -71,8 +71,8 @@ func Init(
 
 	rec.Init(dbConf)
 
-	if err := inmem_client.Init(inMemConfig); err != nil {
-		log.WithField("error", err.Error()).Fatal("cannot init inmem client")
+	if err := mid_client.Init(midConfig); err != nil {
+		log.WithField("error", err.Error()).Fatal("cannot init mid client")
 	}
 
 	svc.conf = serviceConf

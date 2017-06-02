@@ -5,7 +5,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	inmem_client "github.com/linkit360/go-mid/rpcclient"
+	mid_client "github.com/linkit360/go-mid/rpcclient"
 	rec "github.com/linkit360/go-utils/rec"
 )
 
@@ -54,11 +54,11 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 	})
 
 	logCtx.Debug("blacklist checks..")
-	blackListed, err := inmem_client.IsBlackListed(record.Msisdn)
+	blackListed, err := mid_client.IsBlackListed(record.Msisdn)
 	if err != nil {
 		Errors.Inc()
 
-		err := fmt.Errorf("inmem_client.IsBlackListed: %s", err.Error())
+		err := fmt.Errorf("mid_client.IsBlackListed: %s", err.Error())
 		logCtx.WithField("error", err.Error()).Error("cann't get is blacklisted")
 		return err
 	}
@@ -84,11 +84,11 @@ func checkBlackListedPostpaid(record *rec.Record) error {
 		logCtx.Debug("not blacklisted, start postpaid checks..")
 	}
 
-	postPaid, err := inmem_client.IsPostPaid(record.Msisdn)
+	postPaid, err := mid_client.IsPostPaid(record.Msisdn)
 	if err != nil {
 		Errors.Inc()
 
-		err := fmt.Errorf("inmem_client.IsPostPaid: %s", err.Error())
+		err := fmt.Errorf("mid_client.IsPostPaid: %s", err.Error())
 		logCtx.WithField("error", err.Error()).Error("cann't get postpaid")
 		return err
 	}
@@ -127,7 +127,7 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 		// order is important
 		// if we ad postpaid below in the table (first)
 		// and after that record transaction, then
-		// we do not notice it in inmem and
+		// we do not notice it in mid and
 		// subscription redirects again to operator request
 		r.SubscriptionStatus = "postpaid"
 		if err := writeSubscriptionStatus(*r); err != nil {
@@ -135,17 +135,17 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 			return err
 		}
 		// update postpaid status only if it wasnt already added
-		postPaid, _ := inmem_client.IsPostPaid(r.Msisdn)
+		postPaid, _ := mid_client.IsPostPaid(r.Msisdn)
 		if !postPaid {
 			PostPaid.Inc()
-			if err := inmem_client.PostPaidPush(r.Msisdn); err != nil {
+			if err := mid_client.PostPaidPush(r.Msisdn); err != nil {
 				Errors.Inc()
 
-				err = fmt.Errorf("inmem_client.PostPaidPush: %s", err.Error())
+				err = fmt.Errorf("mid_client.PostPaidPush: %s", err.Error())
 				logCtx.WithFields(log.Fields{
 					"msisdn": r.Msisdn,
 					"error":  err.Error(),
-				}).Error("add inmem postpaid error")
+				}).Error("add mid postpaid error")
 				return err
 			}
 			if err := addPostPaidNumber(*r); err != nil {
@@ -160,7 +160,7 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 				return nil
 			}
 		} else {
-			logCtx.Info("already in postpaid inmem")
+			logCtx.Info("already in postpaid mid")
 		}
 		if r.Type != "expired" && r.AttemptsCount >= 1 {
 			if err := removeRetry(*r); err != nil {

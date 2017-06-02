@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	amqp_driver "github.com/streadway/amqp"
 
-	acceptor "github.com/linkit360/go-acceptor-structs"
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	mid_client "github.com/linkit360/go-mid/rpcclient"
 	mid_service "github.com/linkit360/go-mid/service"
@@ -23,6 +22,7 @@ import (
 	queue_config "github.com/linkit360/go-utils/config"
 	m "github.com/linkit360/go-utils/metrics"
 	rec "github.com/linkit360/go-utils/rec"
+	xmp_api_structs "github.com/linkit360/xmp-api/src/structs"
 )
 
 type yondu struct {
@@ -251,7 +251,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"serviceId": r.ServiceCode,
 			"error":     err.Error(),
@@ -261,7 +261,7 @@ func (y *yondu) sentContent(r rec.Record) (err error) {
 	contentHash, err := getContentUniqueHash(r)
 	if err != nil {
 		Errors.Inc()
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 		logCtx.WithFields(log.Fields{
 			"error":      err.Error(),
 			"service_id": r.ServiceCode,
@@ -291,7 +291,7 @@ type YonduEventNotifyMO struct {
 func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var r rec.Record
-		var s acceptor.Service
+		var s xmp_api_structs.Service
 		var err error
 		var logCtx *log.Entry
 		var transactionMsg transaction_log_service.OperatorTransactionLog
@@ -426,14 +426,14 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 	}
 }
 
-func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc acceptor.Service, err error) {
+func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc xmp_api_structs.Service, err error) {
 	keyWords := strings.Split(req.Params.Message, " ")
 	var campaign mid_service.Campaign
 	campaign, err = mid_client.GetCampaignByKeyWord(keyWords[0])
 	if err != nil {
 		y.m.MOUnknownCampaign.Inc()
 
-		err = fmt.Errorf("inmem_client.GetCampaignByKeyWord: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetCampaignByKeyWord: %s", err.Error())
 		log.WithFields(log.Fields{
 			"keyword": req.Params.Message,
 			"error":   err.Error(),
@@ -444,7 +444,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 	if err != nil {
 		y.m.MOUnknownService.Inc()
 
-		err = fmt.Errorf("inmem_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
 		log.WithFields(log.Fields{
 			"message":    req.Params.Message,
 			"serviceId":  campaign.ServiceCode,
@@ -803,7 +803,7 @@ func (y *yondu) publishCharge(priority uint8, r rec.Record) error {
 }
 
 // ============================================================
-// inmemory cache for incoming mo subscriptions
+// midory cache for incoming mo subscriptions
 type activeSubscriptions struct {
 	byKey map[string]rec.ActiveSubscription
 }

@@ -21,7 +21,7 @@ func RunServer() {
 	service.Init(
 		appConfig.AppName,
 		appConfig.Service,
-		appConfig.InMemClientConfig,
+		appConfig.MidConfig,
 		appConfig.DbConf,
 		appConfig.Publisher,
 		appConfig.Consumer,
