@@ -17,6 +17,7 @@ service:
     db_actions: mt_manager
     transaction_log: transaction_log
     restore_pixels: restore_pixels
+    reporter_transaction: reporter_transaction
 
   mobilink:
     enabled: false

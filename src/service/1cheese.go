@@ -125,8 +125,10 @@ func (ch *cheese) processMO(deliveries <-chan amqp_driver.Delivery) {
 			ch.m.AddToDbSuccess.Inc()
 		}
 
+		// usually we do it in qlistener
 		r.Result = "paid"
-		publishReporter(svc.conf.Queues.ReporterMo, r)
+		r.AttemptsCount = 0
+		publishReporter(svc.conf.Queues.ReporterTransaction, r)
 
 		if err := notifyRestorePixel(r); err != nil {
 			Errors.Inc()
