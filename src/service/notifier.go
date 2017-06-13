@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	mid "github.com/linkit360/go-mid/service"
 	pixels "github.com/linkit360/go-pixel/src/notifier"

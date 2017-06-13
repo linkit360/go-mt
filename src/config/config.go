@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
+	log "github.com/sirupsen/logrus"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"
 	mid_client "github.com/linkit360/go-mid/rpcclient"

@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
+	log "github.com/sirupsen/logrus"
 	amqp_driver "github.com/streadway/amqp"
 
 	content_client "github.com/linkit360/go-contentd/rpcclient"

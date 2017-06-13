@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/jinzhu/configor"
+	log "github.com/sirupsen/logrus"
 	"github.com/vostrok/utils/amqp"
 
 	"github.com/vostrok/utils/db"
