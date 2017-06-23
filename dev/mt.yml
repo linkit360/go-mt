@@ -20,7 +20,7 @@ service:
     reporter_transaction: reporter_transaction
 
   mobilink:
-    enabled: false
+    enabled: true
     operator_name: mobilink
     operator_code: 41001
     rejected_hours: 720
@@ -32,6 +32,11 @@ service:
     periodic:
       enabled: true
       period: 3600
+      fetch_limit: 10
+
+    recharge:
+      enabled: true
+      period: 1
       fetch_limit: 10
 
     content:
@@ -105,7 +110,7 @@ service:
       1003: BlackListed
 
   cheese:
-    enabled: true
+    enabled: false
     operator_name: cheese
     country_code: 66
     mcc: 520

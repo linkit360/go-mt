@@ -43,6 +43,7 @@ type MobilinkConfig struct {
 	Channel         ChannelNotifyConfig             `yaml:"channel"`
 	Content         ContentConfig                   `yaml:"content"`
 	Periodic        PeriodicConfig                  `yaml:"periodic"`
+	ReCharge        PeriodicConfig                  `yaml:"recharge"`
 	NewSubscription queue_config.ConsumeQueueConfig `yaml:"new"`
 	MO              queue_config.ConsumeQueueConfig `yaml:"mo"`
 	SMSRequests     string                          `yaml:"sms"`
@@ -115,19 +116,96 @@ func initMobilink(
 		log.Info("periodic disabled")
 	}
 
+	if mb.conf.ReCharge.Enabled {
+		go func() {
+			for range time.Tick(time.Duration(mb.conf.ReCharge.Period) * time.Second) {
+				mb.processReChargePeriodic()
+			}
+		}()
+	} else {
+		log.Info("periodic recharge disabled")
+	}
+
 	return mb
+}
+
+// ============================================================
+// periodics: some of them aren't paid. Do try to charge them again in the time.
+func (mb *mobilink) processReChargePeriodic() {
+	mb.m.SinceReChargePeriodicStartProcess.Set(0)
+	if !mb.conf.ReCharge.Enabled {
+		return
+	}
+	begin := time.Now()
+	rechargers, err := rec.GetNotPaidPeriodics(mb.conf.ReCharge.FetchLimit)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Error("cannot get recharge periodics")
+		return
+	}
+	mb.m.GetReChargePeriodicsDuration.Observe(time.Since(begin).Seconds())
+
+	begin = time.Now()
+	for _, subscr := range rechargers {
+
+		logCtx := log.WithFields(log.Fields{
+			"tid":    subscr.Tid,
+			"action": "recharge periodic",
+		})
+
+		s, err := mid_client.GetServiceByCode(subscr.ServiceCode)
+		if err != nil {
+			Errors.Inc()
+			err = fmt.Errorf("mid_client.GetServiceByCode: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error":        err.Error(),
+				"service_code": subscr.ServiceCode,
+			}).Error("cannot get service by id")
+			continue
+		}
+		mb.setServiceFields(&subscr, s)
+
+		// send charge req
+		if err := publish(mb.conf.Requests, "charge", subscr, 0); err != nil {
+
+			err = fmt.Errorf("publish: %s", err.Error())
+			logCtx.WithFields(log.Fields{
+				"error": err.Error(),
+			}).Error("cannot send charge request")
+			continue
+		} else {
+			logCtx.WithFields(log.Fields{
+				"attempts_count":  subscr.AttemptsCount,
+				"days":            subscr.PeriodicDays,
+				"price":           subscr.Price,
+				"subscription_id": subscr.SubscriptionId,
+			}).Info("sent charge request")
+		}
+		begin := time.Now()
+		if err = rec.SetSubscriptionStatus("pending", subscr.SubscriptionId); err != nil {
+			SetPendingStatusErrors.Inc()
+			return
+		}
+		SetPeriodicPendingStatusDuration.Observe(time.Since(begin).Seconds())
+	}
+
+	mb.m.ProcessReChargePeriodicsDuration.Observe(time.Since(begin).Seconds())
 }
 
 // ============================================================
 // periodics: get subscriptions in database and send charge request
 func (mb *mobilink) processPeriodic() {
-	mb.m.SinPeriodicStartProcess.Set(0)
+	mb.m.SincePeriodicStartProcess.Set(0)
 	if !mb.conf.Periodic.Enabled {
 		return
 	}
 	begin := time.Now()
 	subscriptions, err := rec.GetPeriodicsOnceADay(mb.conf.Periodic.FetchLimit)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err.Error(),
+		}).Error("cannot get periodics")
 		return
 	}
 	mb.m.GetPeriodicsDuration.Observe(time.Since(begin).Seconds())
@@ -162,8 +240,9 @@ func (mb *mobilink) processPeriodic() {
 			continue
 		} else {
 			logCtx.WithFields(log.Fields{
+				"days":            subscr.PeriodicDays,
 				"price":           subscr.Price,
-				"subscription)id": subscr.SubscriptionId,
+				"subscription_id": subscr.SubscriptionId,
 			}).Info("sent charge request")
 		}
 		begin := time.Now()
@@ -212,6 +291,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		logCtx = logCtx.WithFields(log.Fields{
 			"tid": r.Tid,
 		})
+		logCtx.Debug("new")
 
 		// first checks
 		if r.Msisdn == "" || r.CampaignCode == "" {
@@ -240,6 +320,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 			msg.Nack(false, true)
 			continue
 		}
+
 		mb.setServiceFields(&r, s)
 
 		// add to database
@@ -307,7 +388,9 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 		r = ns.EventData
 		logCtx = logCtx.WithFields(log.Fields{
 			"tid": r.Tid,
+			"sid": r.ServiceCode,
 		})
+		logCtx.Debug("mo")
 		// check
 		if err = checkMO(&r, mb.isRejectedFn, mb.setActiveSubscriptionCache); err != nil {
 			Errors.Inc()
@@ -353,7 +436,8 @@ func (mb *mobilink) setServiceFields(r *rec.Record, s xmp_api_structs.Service) {
 	r.PaidHours = s.PaidHours
 	r.RetryDays = s.RetryDays
 	r.PeriodicDays = s.PeriodicDays
-	r.Price = 100 * int(s.Price)
+	r.Price = s.PriceCents
+	r.TrialDays = s.TrialDays
 	r.SMSText = s.SMSOnSubscribe // for mo func
 }
 
@@ -362,6 +446,7 @@ func (mb *mobilink) setServiceFields(r *rec.Record, s xmp_api_structs.Service) {
 func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 	for msg := range deliveries {
 		var e EventNotifyTarifficate
+		var logCtx *log.Entry
 		if err := json.Unmarshal(msg.Body, &e); err != nil {
 			Errors.Inc()
 			mb.m.ResponseDropped.Inc()
@@ -373,9 +458,20 @@ func (mb *mobilink) processResponses(deliveries <-chan amqp_driver.Delivery) {
 			}).Error("failed")
 			goto ack
 		}
+		logCtx = log.WithFields(log.Fields{
+			"tid": e.EventData.Tid,
+			"sid": e.EventData.ServiceCode,
+		})
+		logCtx.Debug("response")
 		if err := mb.handleResponse(e.EventName, e.EventData); err != nil {
 			Errors.Inc()
 			mb.m.ResponseErrors.Inc()
+			log.WithFields(log.Fields{
+				"error":    err.Error(),
+				"msg":      "requeue",
+				"response": string(msg.Body),
+			}).Error("response")
+			time.Sleep(time.Second)
 			msg.Nack(false, true)
 			continue
 		}
@@ -399,6 +495,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 	var err error
 	var downloadedContentCount int
 	var count int
+	purgePolicyActive := true
 	var s xmp_api_structs.Service
 	var gracePeriod time.Duration
 	var allowedSubscriptionPeriod time.Duration
@@ -419,7 +516,7 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 
 	s, err = mid_client.GetServiceByCode(r.ServiceCode)
 	if err != nil {
-		err = fmt.Errorf("mid_client.GetServiceById: %s", err.Error())
+		err = fmt.Errorf("mid_client.GetServiceByCode: %s", err.Error())
 		return err
 	}
 
@@ -476,62 +573,70 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 		logCtx.WithFields(log.Fields{}).Error("subscriptionId is empty")
 		return nil
 	}
-	count, err = rec.GetCountOfFailedChargesFor(r.Msisdn, r.Tid, r.SubscriptionId, s.InactiveDays)
-	if err != nil {
-		return err
-	}
-	if r.Paid == false {
-		count = count + 1
-	}
-	if count > s.InactiveDays {
-		logCtx.WithFields(log.Fields{
-			"reason":               "inactive days",
-			"failed_charges_count": count,
-			"inactive_days":        s.InactiveDays,
-		}).Info("deactivate subscription")
-		flagUnsubscribe = true
-		goto unsubscribe
+
+	// purge policy starts from certain period
+	if s.PurgeAfterDays > 0 && timePassedSinsceSubscribe < time.Duration(24*s.PurgeAfterDays)*time.Hour {
+		purgePolicyActive = false
 	}
 
-	if r.Paid == false && timePassedSinsceSubscribe > gracePeriod {
-		logCtx.WithField("reason", "failed charge in grace period").Info("deactivate subscription")
-		flagUnsubscribe = true
-		goto unsubscribe
-	}
-
-	if timePassedSinsceSubscribe > allowedSubscriptionPeriod {
-		logCtx.WithField("reason", "passed the subscription period").Info("deactivate subscription")
-		flagUnsubscribe = true
-		goto unsubscribe
-	}
-
-	downloadedContentCount, err = rec.GetCountOfDownloadedContent(r.SubscriptionId)
-	if err != nil {
-		logCtx.WithField("error", err.Error()).Error("cannot get count of downloaded content")
-		downloadedContentCount = s.MinimalTouchTimes
-	}
-	if downloadedContentCount < s.MinimalTouchTimes && timePassedSinsceSubscribe > gracePeriod {
-		logCtx.WithField("reason", "too view content downloaded").Info("deactivate subscription")
-		flagUnsubscribe = true
-		goto unsubscribe
-	}
-
-unsubscribe:
-	if flagUnsubscribe {
-		mb.removeActiveSubscription(r)
-		r.SubscriptionStatus = "inactive"
-		if err := writeSubscriptionStatus(r); err != nil {
+	if purgePolicyActive {
+		count, err = rec.GetCountOfFailedChargesFor(r.Msisdn, r.Tid, r.SubscriptionId, s.InactiveDays)
+		if err != nil {
 			return err
 		}
-		mb.sendChannelNotify("unreg", r)
-
-		if s.SMSOnUnsubscribe == "" {
-			log.WithField("sms_text", "empty").Info("skip user notify")
-			return nil
+		if r.Paid == false {
+			count = count + 1
 		}
-		r.SMSText = s.SMSOnUnsubscribe
-		publish(mb.conf.SMSRequests, "send_sms", r)
+		if count > s.InactiveDays {
+			logCtx.WithFields(log.Fields{
+				"reason":               "inactive days",
+				"failed_charges_count": count,
+				"inactive_days":        s.InactiveDays,
+			}).Info("deactivate subscription")
+			flagUnsubscribe = true
+			goto unsubscribe
+		}
 
+		if r.Paid == false && timePassedSinsceSubscribe > gracePeriod {
+			logCtx.WithField("reason", "failed charge in grace period").Info("deactivate subscription")
+			flagUnsubscribe = true
+			goto unsubscribe
+		}
+
+		if timePassedSinsceSubscribe > allowedSubscriptionPeriod {
+			logCtx.WithField("reason", "passed the subscription period").Info("deactivate subscription")
+			flagUnsubscribe = true
+			goto unsubscribe
+		}
+
+		downloadedContentCount, err = rec.GetCountOfDownloadedContent(r.SubscriptionId)
+		if err != nil {
+			logCtx.WithField("error", err.Error()).Error("cannot get count of downloaded content")
+			downloadedContentCount = s.MinimalTouchTimes
+		}
+		if downloadedContentCount < s.MinimalTouchTimes && timePassedSinsceSubscribe > gracePeriod {
+			logCtx.WithField("reason", "too view content downloaded").Info("deactivate subscription")
+			flagUnsubscribe = true
+			goto unsubscribe
+		}
+
+	unsubscribe:
+		if flagUnsubscribe {
+			mb.removeActiveSubscription(r)
+			r.SubscriptionStatus = "inactive"
+			if err := writeSubscriptionStatus(r); err != nil {
+				return err
+			}
+			mb.sendChannelNotify("unreg", r)
+
+			if s.SMSOnUnsubscribe == "" {
+				log.WithField("sms_text", "empty").Info("skip user notify")
+				return nil
+			}
+			r.SMSText = s.SMSOnUnsubscribe
+			publish(mb.conf.SMSRequests, "send_sms", r)
+
+		}
 	}
 
 	// send everything, pixels module will decide to send pixel, or not to send
@@ -754,44 +859,50 @@ func (mb *mobilink) setActiveSubscriptionCache(r rec.Record) {
 // ============================================================
 // metrics
 type MobilinkMetrics struct {
-	Dropped                  m.Gauge
-	Empty                    m.Gauge
-	AddToDBErrors            m.Gauge
-	AddToDbSuccess           m.Gauge
-	NotifyErrors             m.Gauge
-	SMSSent                  m.Gauge
-	ResponseDropped          m.Gauge
-	ResponseErrors           m.Gauge
-	ResponseSuccess          m.Gauge
-	ChannelTotal             m.Gauge
-	ChannelSuccess           m.Gauge
-	ChannelErrors            m.Gauge
-	SinPeriodicStartProcess  prometheus.Gauge
-	GetPeriodicsDuration     prometheus.Summary
-	ProcessPeriodicsDuration prometheus.Summary
-	GetContentDuration       prometheus.Summary
-	ProcessContentDuration   prometheus.Summary
+	Dropped                           m.Gauge
+	Empty                             m.Gauge
+	AddToDBErrors                     m.Gauge
+	AddToDbSuccess                    m.Gauge
+	NotifyErrors                      m.Gauge
+	SMSSent                           m.Gauge
+	ResponseDropped                   m.Gauge
+	ResponseErrors                    m.Gauge
+	ResponseSuccess                   m.Gauge
+	ChannelTotal                      m.Gauge
+	ChannelSuccess                    m.Gauge
+	ChannelErrors                     m.Gauge
+	SincePeriodicStartProcess         prometheus.Gauge
+	GetPeriodicsDuration              prometheus.Summary
+	ProcessPeriodicsDuration          prometheus.Summary
+	SinceReChargePeriodicStartProcess prometheus.Gauge
+	GetReChargePeriodicsDuration      prometheus.Summary
+	ProcessReChargePeriodicsDuration  prometheus.Summary
+	GetContentDuration                prometheus.Summary
+	ProcessContentDuration            prometheus.Summary
 }
 
 func (mb *mobilink) initMetrics() {
 	mbm := &MobilinkMetrics{
-		Dropped:                  m.NewGauge(appName, mb.conf.OperatorName, "dropped", "mobilink dropped"),
-		Empty:                    m.NewGauge(appName, mb.conf.OperatorName, "empty", "mobilink queue empty"),
-		AddToDBErrors:            m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
-		AddToDbSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
-		NotifyErrors:             m.NewGauge(appName, mb.conf.OperatorName, "notify_errors", "notify errors"),
-		SMSSent:                  m.NewGauge(appName, mb.conf.OperatorName, "sms_sent", "sms sent"),
-		ResponseDropped:          m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
-		ResponseErrors:           m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
-		ResponseSuccess:          m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
-		ChannelTotal:             m.NewGauge(appName, mb.conf.OperatorName, "channel_total", "channel total"),
-		ChannelSuccess:           m.NewGauge(appName, mb.conf.OperatorName, "channel_success", "channel success"),
-		ChannelErrors:            m.NewGauge(appName, mb.conf.OperatorName, "channel_errors", "channel errors"),
-		SinPeriodicStartProcess:  m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_periodic_fetch_seconds", "seconds since last periodic processing"),
-		GetPeriodicsDuration:     m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
-		ProcessPeriodicsDuration: m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
-		GetContentDuration:       m.NewSummary("get_content_duration_seconds", "get content duration seconds"),
-		ProcessContentDuration:   m.NewSummary("process_content_duration_seconds", "process content duration seconds"),
+		Dropped:                           m.NewGauge(appName, mb.conf.OperatorName, "dropped", "mobilink dropped"),
+		Empty:                             m.NewGauge(appName, mb.conf.OperatorName, "empty", "mobilink queue empty"),
+		AddToDBErrors:                     m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_errors", "subscription add to db errors"),
+		AddToDbSuccess:                    m.NewGauge(appName, mb.conf.OperatorName, "add_to_db_success", "subscription add to db success"),
+		NotifyErrors:                      m.NewGauge(appName, mb.conf.OperatorName, "notify_errors", "notify errors"),
+		SMSSent:                           m.NewGauge(appName, mb.conf.OperatorName, "sms_sent", "sms sent"),
+		ResponseDropped:                   m.NewGauge(appName, mb.conf.OperatorName, "response_dropped", "dropped"),
+		ResponseErrors:                    m.NewGauge(appName, mb.conf.OperatorName, "response_errors", "errors"),
+		ResponseSuccess:                   m.NewGauge(appName, mb.conf.OperatorName, "response_success", "success"),
+		ChannelTotal:                      m.NewGauge(appName, mb.conf.OperatorName, "channel_total", "channel total"),
+		ChannelSuccess:                    m.NewGauge(appName, mb.conf.OperatorName, "channel_success", "channel success"),
+		ChannelErrors:                     m.NewGauge(appName, mb.conf.OperatorName, "channel_errors", "channel errors"),
+		SincePeriodicStartProcess:         m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_periodic_fetch_seconds", "seconds since last periodic processing"),
+		GetPeriodicsDuration:              m.NewSummary("get_periodics_duration_seconds", "get periodics duration seconds"),
+		ProcessPeriodicsDuration:          m.NewSummary("process_periodics_duration_seconds", "process periodics duration seconds"),
+		SinceReChargePeriodicStartProcess: m.PrometheusGauge(appName, mb.conf.OperatorName, "since_last_recharge_periodic_fetch_seconds", "seconds since last recharge periodic processing"),
+		GetReChargePeriodicsDuration:      m.NewSummary("get_recharge_periodics_duration_seconds", "get recharge periodics duration seconds"),
+		ProcessReChargePeriodicsDuration:  m.NewSummary("process_recharge_periodics_duration_seconds", "process recharge periodics duration seconds"),
+		GetContentDuration:                m.NewSummary("get_content_duration_seconds", "get content duration seconds"),
+		ProcessContentDuration:            m.NewSummary("process_content_duration_seconds", "process content duration seconds"),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -812,7 +923,8 @@ func (mb *mobilink) initMetrics() {
 
 	go func() {
 		for range time.Tick(time.Second) {
-			mbm.SinPeriodicStartProcess.Inc()
+			mbm.SincePeriodicStartProcess.Inc()
+			mbm.SinceReChargePeriodicStartProcess.Inc()
 		}
 	}()
 	mb.m = mbm

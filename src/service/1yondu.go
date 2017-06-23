@@ -469,7 +469,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
 		RetryDays:                svc.RetryDays,
-		Price:                    100 * int(svc.Price),
+		Price:                    svc.PriceCents,
 		Periodic:                 true,
 		PeriodicDays:             svc.PeriodicDays,
 		PeriodicAllowedFromHours: svc.PeriodicAllowedFrom,

@@ -237,23 +237,29 @@ func (qr *qrtech) processDN(deliveries <-chan amqp_driver.Delivery) {
 			time.Sleep(time.Second)
 			msg.Nack(false, true)
 			log.WithFields(log.Fields{
+				"q":   qr.conf.DN.Name,
 				"msg": "requeue",
-			}).Error("consume from " + qr.conf.DN.Name)
+				"dn":  string(msg.Body),
+			}).Error("consume")
 			continue
 		}
-		if as.Id == 0 {
-			qr.m.DNDropped.Inc()
 
-			log.WithFields(log.Fields{
-				"error": "not found",
-				"msg":   "dropped",
-				"dn":    string(msg.Body),
-			}).Error("consume from " + qr.conf.DN.Name)
-			goto ack
+		if as.Id != 0 {
+			r.SubscriptionId = as.Id
+			r.AttemptsCount = as.AttemptsCount
+		} else {
+			if err := rec.AddNewSubscriptionToDB(&r); err != nil {
+				Errors.Inc()
+				qr.m.AddToDBErrors.Inc()
+				msg.Nack(false, true)
+				log.WithFields(log.Fields{
+					"msg": "requeue",
+				}).Error("consume from " + qr.conf.DN.Name)
+				continue
+			}
+			qr.m.AddToDbSuccess.Inc()
+			qr.setActiveSubscriptionCache(r)
 		}
-		r.SubscriptionId = as.Id
-		r.AttemptsCount = as.AttemptsCount
-
 		if err := processResponse(&r, false); err != nil {
 			qr.m.DNErrors.Inc()
 			msg.Nack(false, true)

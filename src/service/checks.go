@@ -148,6 +148,7 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 				}).Error("add mid postpaid error")
 				return err
 			}
+
 			if err := addPostPaidNumber(*r); err != nil {
 				Errors.Inc()
 
@@ -162,7 +163,7 @@ func processResponse(r *rec.Record, retriesEnabled bool) error {
 		} else {
 			logCtx.Info("already in postpaid mid")
 		}
-		if r.Type != "expired" && r.AttemptsCount >= 1 {
+		if retriesEnabled && r.AttemptsCount >= 1 {
 			if err := removeRetry(*r); err != nil {
 				Errors.Inc()
 				return err
