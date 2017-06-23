@@ -110,7 +110,7 @@ func notifyPixel(r rec.Record) (err error) {
 	msg := pixels.Pixel{
 		Tid:            r.Tid,
 		Msisdn:         r.Msisdn,
-		CampaignCode:   r.CampaignCode,
+		CampaignCode:   r.CampaignId,
 		SubscriptionId: r.SubscriptionId,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
@@ -151,7 +151,7 @@ func notifyRestorePixel(r rec.Record) (err error) {
 	msg := pixels.Pixel{
 		Tid:            r.Tid,
 		Msisdn:         r.Msisdn,
-		CampaignCode:   r.CampaignCode,
+		CampaignCode:   r.CampaignId,
 		SubscriptionId: r.SubscriptionId,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
@@ -210,7 +210,7 @@ func publishReporter(queue string, r rec.Record) (err error) {
 		EventName: "new mo",
 		EventData: mid.Collect{
 			Tid:               r.Tid,
-			CampaignCode:      r.CampaignCode,
+			CampaignCode:      r.CampaignId,
 			OperatorCode:      r.OperatorCode,
 			Msisdn:            r.Msisdn,
 			Price:             r.Price,

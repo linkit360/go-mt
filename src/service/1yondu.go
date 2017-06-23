@@ -314,7 +314,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			msg.Nack(false, true)
 			continue
 		}
-		if err == nil && r.CampaignCode == "" {
+		if err == nil && r.CampaignId == "" {
 			goto ack
 		}
 		transactionMsg = transaction_log_service.OperatorTransactionLog{
@@ -327,7 +327,7 @@ func (y *yondu) processMO(deliveries <-chan amqp_driver.Delivery) {
 			Price:            r.Price,
 			ServiceCode:      r.ServiceCode,
 			SubscriptionId:   r.SubscriptionId,
-			CampaignCode:     r.CampaignCode,
+			CampaignCode:     r.CampaignId,
 			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: "",
@@ -448,7 +448,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		log.WithFields(log.Fields{
 			"message":    req.Params.Message,
 			"serviceId":  campaign.ServiceCode,
-			"campaignId": campaign.Code,
+			"campaignId": campaign.Id,
 			"error":      err.Error(),
 		}).Error("cannot get service by id")
 		return
@@ -464,7 +464,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 		OperatorToken:            req.Params.RRN,
 		Publisher:                "",
 		Pixel:                    "",
-		CampaignCode:             campaign.Code,
+		CampaignId:               campaign.Id,
 		ServiceCode:              campaign.ServiceCode,
 		DelayHours:               svc.DelayHours,
 		PaidHours:                svc.PaidHours,
@@ -533,7 +533,7 @@ func (y *yondu) processDN(deliveries <-chan amqp_driver.Delivery) {
 			Price:            r.Price,
 			ServiceCode:      r.ServiceCode,
 			SubscriptionId:   r.SubscriptionId,
-			CampaignCode:     r.CampaignCode,
+			CampaignCode:     r.CampaignId,
 			RequestBody:      e.EventData.Raw,
 			ResponseBody:     "",
 			ResponseDecision: r.SubscriptionStatus,
@@ -823,7 +823,7 @@ func (y *yondu) initActiveSubscriptionsCache() {
 	}
 }
 func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 	_, found := y.activeSubscriptions.byKey[key]
 	log.WithFields(log.Fields{
 		"tid":   r.Tid,
@@ -833,7 +833,7 @@ func (y *yondu) getActiveSubscriptionCache(r rec.Record) bool {
 	return found
 }
 func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 	if _, found := y.activeSubscriptions.byKey[key]; found {
 		return
 	}
@@ -848,7 +848,7 @@ func (y *yondu) setActiveSubscriptionCache(r rec.Record) {
 }
 
 func (y *yondu) deleteActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 	delete(y.activeSubscriptions.byKey, key)
 	log.WithFields(log.Fields{
 		"tid": r.Tid,

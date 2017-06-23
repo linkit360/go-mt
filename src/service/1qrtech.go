@@ -304,7 +304,7 @@ func (qr *qrtech) initActiveSubscriptionsCache() {
 }
 
 func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscription, err error) {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 	as, found := qr.activeSubscriptions.byKey[key]
 	if !found {
 		var oldRec rec.Record
@@ -332,7 +332,7 @@ func (qr *qrtech) getActiveSubscriptionCache(r rec.Record) (as rec.ActiveSubscri
 }
 
 func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 
 	// even if found, we need update attempts count
 	qr.activeSubscriptions.byKey[key] = rec.ActiveSubscription{
@@ -346,7 +346,7 @@ func (qr *qrtech) setActiveSubscriptionCache(r rec.Record) {
 }
 
 func (qr *qrtech) deleteActiveSubscriptionCache(r rec.Record) {
-	key := r.Msisdn + "-" + r.CampaignCode
+	key := r.Msisdn + "-" + r.CampaignId
 	delete(qr.activeSubscriptions.byKey, key)
 	log.WithFields(log.Fields{
 		"tid": r.Tid,

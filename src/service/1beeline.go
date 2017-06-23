@@ -254,7 +254,7 @@ func (be *beeline) processSMPP(deliveries <-chan amqp_driver.Delivery) {
 			Error:         r.OperatorErr,
 			Price:         r.Price,
 			ServiceCode:   r.ServiceCode,
-			CampaignCode:  r.CampaignCode,
+			CampaignCode:  r.CampaignId,
 			RequestBody:   string(fieldsJSON),
 			ResponseBody:  "",
 			ResponseCode:  200,
@@ -340,7 +340,7 @@ func (be *beeline) resolveRec(i beeline_service.Incoming) (r rec.Record, err err
 		return
 	}
 
-	r.CampaignCode = campaign.Code
+	r.CampaignId = campaign.Id
 	r.ServiceCode = campaign.ServiceCode
 	service, err := mid_client.GetServiceByCode(campaign.ServiceCode)
 	if err != nil {

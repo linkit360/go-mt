@@ -294,7 +294,7 @@ func (mb *mobilink) processNewMobilinkSubscription(deliveries <-chan amqp_driver
 		logCtx.Debug("new")
 
 		// first checks
-		if r.Msisdn == "" || r.CampaignCode == "" {
+		if r.Msisdn == "" || r.CampaignId == "" {
 			mb.m.Dropped.Inc()
 			mb.m.Empty.Inc()
 
@@ -410,9 +410,9 @@ func (mb *mobilink) processMO(deliveries <-chan amqp_driver.Delivery) {
 				continue
 			}
 			if r.SMSText == "" {
-				Errors.Inc()
 				logCtx.WithFields(log.Fields{}).Info("empty text for sms subscribe")
 			} else {
+				logCtx.WithFields(log.Fields{"text": r.SMSText}).Info("send sms text for mo")
 				publish(mb.conf.SMSRequests, "send_sms", r)
 			}
 		}
@@ -544,6 +544,8 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 			return nil
 		}
 		r.SMSText = s.SMSOnUnsubscribe
+
+		logCtx.WithFields(log.Fields{"text": r.SMSText}).Info("send sms text for mo")
 		publish(mb.conf.SMSRequests, "send_sms", r)
 
 		return nil
@@ -634,6 +636,8 @@ func (mb *mobilink) handleResponse(eventName string, r rec.Record) error {
 				return nil
 			}
 			r.SMSText = s.SMSOnUnsubscribe
+
+			logCtx.WithFields(log.Fields{"text": r.SMSText}).Info("send sms text for unsubscribe")
 			publish(mb.conf.SMSRequests, "send_sms", r)
 
 		}
@@ -773,6 +777,8 @@ func (mb *mobilink) sendContent() error {
 		}
 
 		subscr.SMSText = fmt.Sprintf(s.SMSOnContent, mb.conf.Content.Url+contentHash)
+
+		logCtx.WithFields(log.Fields{"text": subscr.SMSText}).Info("send sms text for send content")
 		if err := publish(mb.conf.SMSRequests, "send_sms", subscr); err != nil {
 
 			err = fmt.Errorf("publish: %s", err.Error())

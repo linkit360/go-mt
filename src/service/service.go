@@ -118,7 +118,7 @@ func getContentUniqueHash(r rec.Record) (string, error) {
 		Msisdn:         r.Msisdn,
 		Tid:            r.Tid,
 		ServiceCode:    r.ServiceCode,
-		CampaignCode:   r.CampaignCode,
+		CampaignId:     r.CampaignId,
 		OperatorCode:   r.OperatorCode,
 		CountryCode:    r.CountryCode,
 		SubscriptionId: r.SubscriptionId,
