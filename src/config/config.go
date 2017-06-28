@@ -17,7 +17,8 @@ import (
 )
 
 type ServerConfig struct {
-	Port string `default:"50304"`
+	Host string `default:"127.0.0.1" yaml:"host"`
+	Port string `default:"50304" yaml:"port"`
 }
 
 type AppConfig struct {

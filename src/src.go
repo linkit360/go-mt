@@ -35,8 +35,8 @@ func RunServer() {
 	r := gin.New()
 	metrics.AddHandler(r)
 
-	r.Run(":" + appConfig.Server.Port)
-	log.WithField("port", appConfig.Server.Port).Info("mt init")
+	r.Run(appConfig.Server.Host + ":" + appConfig.Server.Port)
+	log.WithField("dsn", appConfig.Server.Host+":"+appConfig.Server.Port).Info("mt init")
 }
 
 func OnExit() {
