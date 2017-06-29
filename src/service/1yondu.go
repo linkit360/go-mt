@@ -438,6 +438,7 @@ func (y *yondu) getRecordByMO(req yondu_service.MOParameters) (r rec.Record, svc
 			"keyword": req.Params.Message,
 			"error":   err.Error(),
 		}).Error("cannot get campaign by keyword")
+		time.Sleep(time.Second)
 		return
 	}
 	svc, err = mid_client.GetServiceByCode(campaign.ServiceCode)

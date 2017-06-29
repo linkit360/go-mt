@@ -210,7 +210,7 @@ func publishReporter(queue string, r rec.Record) (err error) {
 		EventName: "new mo",
 		EventData: mid.Collect{
 			Tid:               r.Tid,
-			CampaignCode:      r.CampaignId,
+			CampaignUUID:      r.CampaignId,
 			OperatorCode:      r.OperatorCode,
 			Msisdn:            r.Msisdn,
 			Price:             r.Price,
